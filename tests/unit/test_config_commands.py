@@ -171,60 +171,61 @@ class TestHostCommands:
         assert session.device.get_interface("Ethernet0").has_ip is False
 
 
+GOLDEN_LINES = {
+    "SW1": [
+        "enable",
+        "configure terminal",
+        "vlan 10",
+        "name ADMIN",
+        "exit",
+        "vlan 20",
+        "name SALES",
+        "exit",
+        "interface gi0/1",
+        "switchport mode trunk",
+        "exit",
+        "interface gi0/2",
+        "switchport mode access",
+        "switchport access vlan 10",
+        "exit",
+        "interface gi0/3",
+        "switchport mode access",
+        "switchport access vlan 20",
+        "end",
+    ],
+    "R1": [
+        "enable",
+        "configure terminal",
+        "interface g0/0/0.10",
+        "encapsulation dot1q 10",
+        "ip address 192.168.10.1 255.255.255.0",
+        "exit",
+        "interface g0/0/0.20",
+        "encapsulation dot1q 20",
+        "ip address 192.168.20.1 255.255.255.0",
+        "end",
+    ],
+    "PC-A": [
+        "enable",
+        "ip address 192.168.10.10 255.255.255.0",
+        "ip default-gateway 192.168.10.1",
+    ],
+    "PC-B": [
+        "enable",
+        "ip address 192.168.20.10 255.255.255.0",
+        "ip default-gateway 192.168.20.1",
+    ],
+}
+
+
 class TestGoldenSmokeRun:
     """The full milestone configuration, executed through the CLI engine."""
-
-    GOLDEN_LINES = {
-        "SW1": [
-            "enable",
-            "configure terminal",
-            "vlan 10",
-            "name ADMIN",
-            "exit",
-            "vlan 20",
-            "name SALES",
-            "exit",
-            "interface gi0/1",
-            "switchport mode trunk",
-            "exit",
-            "interface gi0/2",
-            "switchport mode access",
-            "switchport access vlan 10",
-            "exit",
-            "interface gi0/3",
-            "switchport mode access",
-            "switchport access vlan 20",
-            "end",
-        ],
-        "R1": [
-            "enable",
-            "configure terminal",
-            "interface g0/0/0.10",
-            "encapsulation dot1q 10",
-            "ip address 192.168.10.1 255.255.255.0",
-            "exit",
-            "interface g0/0/0.20",
-            "encapsulation dot1q 20",
-            "ip address 192.168.20.1 255.255.255.0",
-            "end",
-        ],
-        "PC-A": [
-            "enable",
-            "ip address 192.168.10.10 255.255.255.0",
-            "ip default-gateway 192.168.10.1",
-        ],
-        "PC-B": [
-            "enable",
-            "ip address 192.168.20.10 255.255.255.0",
-            "ip default-gateway 192.168.20.1",
-        ],
-    }
 
     def test_milestone_scenario_accepts_full_configuration(self) -> None:
         scenario = load_scenario_file(FIRST_SCENARIO)
         state = build_initial_state(scenario)
         outputs: dict[str, list[str]] = {}
-        for hostname, lines in self.GOLDEN_LINES.items():
+        for hostname, lines in GOLDEN_LINES.items():
             session = CliSession(state, hostname)
             outputs[hostname] = [
                 out for line in lines if (out := session.execute(line))

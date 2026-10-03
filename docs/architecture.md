@@ -60,7 +60,7 @@ Domain objects never depend on the terminal UI; the CLI depends on the domain, n
 | `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors, show renderers | ✅ stage 3 implemented (modes, parser, structural commands); show renderers pending |
 | `netlab.scenarios` | Scenario schema, YAML loader, fail-early validation, initial-state builder | ✅ implemented |
 | `netlab.grading` | `Check`/validator architecture, `Assessment`, scoring | ⏳ planned |
-| `netlab.verification` | Verification commands generated from state | ⏳ planned |
+| `netlab.verification` | Show renderers (`show vlan brief`, `show interfaces trunk`, `show ip interface brief`, running/startup config) generated from state | ✅ core renderers implemented; expanding with simulation |
 | `netlab.persistence` | Session save/resume (JSON), later SQLite records | ⏳ planned |
 | `netlab.telemetry` | Command history, skill mastery (Phase 5+) | ⏳ deferred |
 | `netlab.instructor` | AI instructor consuming structured assessment evidence (Phase 6) | ⏳ deferred |
@@ -87,9 +87,11 @@ Modules are created only when they have a defined responsibility (no placeholder
 
 ## Running vs startup configuration
 
-The network state is authoritative. `show running-config` is *rendered* from state (renderer arrives
-with the IOS module). `startup-config` is a frozen snapshot of that state; mutation of the device
-after `copy running-config startup-config` cannot affect the snapshot.
+The network state is authoritative. `show running-config` is *rendered* from live state by the
+verification module. `startup-config` is a frozen snapshot (`Config`); `show startup-config`
+reconstructs the device from that snapshot and renders it with the same renderer as the running
+config, so neither output is ever synthesized independently. Mutation after
+`copy running-config startup-config` cannot affect the snapshot (verified by tests).
 
 ## Future backends
 

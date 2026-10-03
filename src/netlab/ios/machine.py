@@ -37,6 +37,12 @@ from netlab.ios.errors import render_error
 from netlab.ios.parser import CommandRegistry
 from netlab.ios.transitions import SessionExit, exit_target, prompt_for
 from netlab.network.state import NetworkState
+from netlab.verification.show import show_interfaces_trunk, show_vlan_brief
+from netlab.verification.show_ip import (
+    show_ip_interface_brief,
+    show_running_config,
+    show_startup_config,
+)
 
 
 @dataclass(frozen=True)
@@ -228,6 +234,27 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
             lines.append(text)
         return "\n".join(lines)
 
+    # --- Verification handlers (rendered from state, never hard-coded) --------
+
+    def _cmd_show_vlan_brief(self, _argument: object) -> str:
+        return show_vlan_brief(self._state, self._device)
+
+    def _cmd_show_interfaces_trunk(self, _argument: object) -> str:
+        return show_interfaces_trunk(self._state, self._device)
+
+    def _cmd_show_ip_interface_brief(self, _argument: object) -> str:
+        return show_ip_interface_brief(self._state, self._device)
+
+    def _cmd_show_running_config(self, _argument: object) -> str:
+        return show_running_config(self._state, self._device)
+
+    def _cmd_show_startup_config(self, _argument: object) -> str:
+        return show_startup_config(self._state, self._device)
+
+    def _cmd_copy_run_start(self, _argument: object) -> str:
+        self._device.copy_running_to_startup()
+        return "Building configuration...\n[OK]"
+
     # --- Dispatch table ---------------------------------------------------------
 
     def _build_handlers(self) -> dict[str, Callable[[object], str]]:
@@ -241,6 +268,13 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
             "interface": self._cmd_interface,
             "help": self._cmd_help,
             "?": self._cmd_help,
+            # Verification (available to every device)
+            "show vlan brief": self._cmd_show_vlan_brief,
+            "show interfaces trunk": self._cmd_show_interfaces_trunk,
+            "show ip interface brief": self._cmd_show_ip_interface_brief,
+            "show running-config": self._cmd_show_running_config,
+            "show startup-config": self._cmd_show_startup_config,
+            "copy running-config startup-config": self._cmd_copy_run_start,
             # Interface configuration (DeviceConfigMixin)
             "description": self.cmd_description,
             "shutdown": self.cmd_shutdown,

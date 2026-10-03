@@ -355,6 +355,42 @@ def host_specs() -> list:
     return specs
 
 
+def show_specs() -> list:
+    """``show`` verification commands, available to every device in both EXEC modes."""
+    from netlab.core.enums import ConfigMode
+    from netlab.ios.parser import CommandSpec
+
+    specs: list = []
+    for exec_mode in (ConfigMode.USER_EXEC, ConfigMode.PRIVILEGED_EXEC):
+        specs.extend(
+            [
+                CommandSpec(
+                    name="show vlan brief", mode=exec_mode, pattern=("sh", "vl", "b")
+                ),
+                CommandSpec(
+                    name="show interfaces trunk",
+                    mode=exec_mode,
+                    pattern=("sh", "in", "t"),
+                ),
+                CommandSpec(
+                    name="show ip interface brief",
+                    mode=exec_mode,
+                    pattern=("sh", "ip", "i", "b"),
+                ),
+                CommandSpec(name="show running-config", mode=exec_mode, pattern=("sh", "ru")),
+                CommandSpec(name="show startup-config", mode=exec_mode, pattern=("sh", "st")),
+            ]
+        )
+    specs.append(
+        CommandSpec(
+            name="copy running-config startup-config",
+            mode=ConfigMode.PRIVILEGED_EXEC,
+            pattern=("cop", "ru", "st"),
+        )
+    )
+    return specs
+
+
 def base_specs(device_type: DeviceType | None) -> list:
     """Transition and structural commands, gated by device type.
 
@@ -414,6 +450,7 @@ def base_specs(device_type: DeviceType | None) -> list:
         specs.extend(switch_specs())
     if device_type is None or device_type in (DeviceType.PC, DeviceType.SERVER):
         specs.extend(host_specs())
+    specs.extend(show_specs())
     return specs
 
 

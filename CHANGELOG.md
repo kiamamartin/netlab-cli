@@ -38,6 +38,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
     commands only on switches.
   - Command history entries recorded per execution for later analytics (doc §34).
 - `netlab console --scenario <id> --device <host>` interactive device session.
+- Verification layer (stage 5) — show commands rendered from authoritative state:
+  - `show vlan brief` (ports grouped per VLAN, trunks under native VLAN),
+    `show interfaces trunk` (mode/encapsulation/status, allowed-and-active VLANs),
+    `show ip interface brief` (addressing + derived up/down state),
+    `show running-config` / `show startup-config` (IOS-style configuration language).
+  - `copy running-config startup-config` snapshots state; startup output is rendered
+    from the frozen snapshot with the same renderer, and later mutations cannot
+    affect it (isolation tests).
 - Configuration commands (stage 4) mutating the authoritative network state:
   - `switchport mode access|trunk`, `switchport access vlan` (auto-creates missing
     VLANs per decision B6; assigning the VLAN does not imply the mode), trunk

@@ -49,13 +49,13 @@ configuration and `show` commands follow in stages 4–5. Do not rely on any com
 |---|---|---|
 | `configure terminal` | Enter global configuration | ✅ implemented |
 | `exit` | Return to user EXEC | ✅ implemented |
-| `show running-config` | Render configuration from live state | ⏳ planned |
-| `show startup-config` | Render saved configuration snapshot | ⏳ planned |
-| `show vlan brief` | VLAN table incl. access-port membership | ⏳ planned |
-| `show interfaces trunk` | Trunk ports: native/allowed/active VLANs | ⏳ planned |
-| `show ip interface brief` | Interface IPv4 + up/down table | ⏳ planned |
+| `show running-config` | Render configuration from live state | ✅ implemented |
+| `show startup-config` | Render saved configuration snapshot | ✅ implemented |
+| `show vlan brief` | VLAN table incl. port membership (trunks under native VLAN) | ✅ implemented |
+| `show interfaces trunk` | Trunk ports: mode/encapsulation/status, allowed-and-active VLANs | ✅ implemented |
+| `show ip interface brief` | Interface IPv4 + up/down table (derived operational state) | ✅ implemented |
 | `show mac address-table` | MAC table (populated once L2 simulation exists) | ⏳ planned |
-| `copy running-config startup-config` | Snapshot running state into startup-config | ⏳ planned |
+| `copy running-config startup-config` | Snapshot running state into startup-config | ✅ implemented (privileged EXEC) |
 
 ### Global configuration
 
@@ -99,7 +99,10 @@ configuration and `show` commands follow in stages 4–5. Do not rely on any com
 | `exit` | Return to global config | ⏳ planned |
 
 Commands are only implemented when their effects are represented correctly in network state —
-`show` output must always be rendered from that state, never hard-coded.
+`show` output must always be rendered from that state, never hard-coded. `show` commands are
+available in both EXEC modes; `copy running-config startup-config` requires privileged EXEC.
+`show` from configuration mode requires IOS `do` syntax (not implemented) — `end` first, as on
+a real device.
 
 ## End-host commands (decision B9)
 
