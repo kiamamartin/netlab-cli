@@ -222,6 +222,19 @@ def build_initial_state(scenario: Scenario) -> NetworkState:
     return state
 
 
+def resolve_scenario(scenarios_dir: str | Path, scenario_id: str) -> tuple[Path, Scenario]:
+    """Locate a scenario by id within ``scenarios_dir`` (doc §55: netlab start)."""
+    loaded, errors = discover_scenarios(scenarios_dir)
+    for path, scenario in loaded:
+        if scenario.id == scenario_id:
+            return path, scenario
+    available = ", ".join(scenario.id for _p, scenario in loaded) or "none"
+    raise ScenarioError(
+        f"scenario {scenario_id!r} not found in {scenarios_dir} "
+        f"(available: {available})"
+    )
+
+
 def validate_requirements(scenario: Scenario) -> list[str]:
     """Semantic checks beyond the schema; returns human-readable problems.
 
@@ -264,5 +277,6 @@ __all__ = [
     "discover_scenarios",
     "load_scenario_file",
     "parse_scenario",
+    "resolve_scenario",
     "validate_requirements",
 ]

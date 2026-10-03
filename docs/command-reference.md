@@ -1,7 +1,21 @@
 # Command reference
 
-Status: **specification** for the first milestone. The IOS CLI engine lands in an upcoming stage;
-commands below are marked accordingly. Do not rely on any command marked *planned*.
+Status: the IOS CLI engine (stage 3) is **implemented** for mode machinery and structural commands;
+configuration and `show` commands follow in stages 4–5. Do not rely on any command marked *planned*.
+
+## IOS-like semantics
+
+- **Unique-prefix matching** per word: `conf t`, `conf term`, and `configure terminal` are all
+  accepted; a prefix beyond the word (`conf ta`) is not. Matching is case-insensitive.
+- **Ambiguity** follows real IOS: a bare `e` in EXEC modes matches both `enable` and `exit` →
+  `% Ambiguous command.`
+- **Mode gating**: commands are registered per configuration mode; `vlan 10` from user EXEC
+  produces `% Invalid input detected at '^' marker.` with the caret under the offending token
+  (brief §10).
+- **Device gating**: `vlan` / `name` are registered only on switches — on a router they are simply
+  not commands, so they yield invalid input rather than a runtime error.
+- Input that ends mid-command (`conf` alone, `hostname` without a name) yields
+  `% Incomplete command.`
 
 ## `netlab` application commands
 
@@ -9,7 +23,8 @@ commands below are marked accordingly. Do not rely on any command marked *planne
 |---|---|---|
 | `netlab version` | Print the NetLab CLI version | ✅ implemented |
 | `netlab list` / `netlab scenarios` | List available scenarios (invalid files reported and skipped) | ✅ `netlab list` implemented |
-| `netlab start <scenario>` | Load a scenario and start a lab session | ⏳ planned |
+| `netlab console --scenario <id> --device <host>` | Interactive IOS-like session on one device of a scenario | ✅ implemented |
+| `netlab start <scenario>` | Load a scenario and start a managed lab session | ⏳ planned |
 | `netlab devices` | List session devices; connect interactively | ⏳ planned |
 | `netlab status` | Session status | ⏳ planned |
 | `netlab assess` / `netlab submit` | Run deterministic grading, show assessment | ⏳ planned |
@@ -23,15 +38,17 @@ commands below are marked accordingly. Do not rely on any command marked *planne
 
 | Command | Effect | Status |
 |---|---|---|
-| `enable` | Enter privileged EXEC | ⏳ planned |
-| `disable` | Return to user EXEC | ⏳ planned |
-| `exit` | Leave device session | ⏳ planned |
+| `enable` | Enter privileged EXEC | ✅ implemented |
+| `disable` | Return to user EXEC | ✅ implemented |
+| `exit` | Leave device session (user EXEC) | ✅ implemented |
+| `help` / `?` | List commands available in the current mode | ✅ implemented |
 
 ### Privileged EXEC
 
 | Command | Effect | Status |
 |---|---|---|
-| `configure terminal` | Enter global configuration | ⏳ planned |
+| `configure terminal` | Enter global configuration | ✅ implemented |
+| `exit` | Return to user EXEC | ✅ implemented |
 | `show running-config` | Render configuration from live state | ⏳ planned |
 | `show startup-config` | Render saved configuration snapshot | ⏳ planned |
 | `show vlan brief` | VLAN table incl. access-port membership | ⏳ planned |
@@ -44,23 +61,24 @@ commands below are marked accordingly. Do not rely on any command marked *planne
 
 | Command | Effect | Status |
 |---|---|---|
-| `hostname <name>` | Rename device (validated) | ⏳ planned |
-| `interface <if>` | Enter interface config (accepts `gi0/1` style) | ⏳ planned |
-| `vlan <id>` | Create/select VLAN → VLAN config mode | ⏳ planned |
-| `exit` / `end` | Leave mode / all configuration modes | ⏳ planned |
+| `hostname <name>` | Rename device (validated) | ✅ implemented |
+| `interface <if>` | Enter interface config (accepts `gi0/1` style) | ✅ implemented |
+| `vlan <id>` | Create/select VLAN → VLAN config mode (switches) | ✅ implemented |
+| `exit` / `end` | Leave mode / all configuration modes | ✅ implemented |
 
 ### VLAN configuration
 
 | Command | Effect | Status |
 |---|---|---|
-| `name <name>` | Set VLAN name | ⏳ planned |
-| `exit` | Return to global config | ⏳ planned |
+| `name <name>` | Set VLAN name | ✅ implemented |
+| `exit` | Return to global config | ✅ implemented |
 
 ### Interface configuration
 
 | Command | Effect | Status |
 |---|---|---|
 | `description <text>` | Set description | ⏳ planned |
+| `exit` | Return to global config | ✅ implemented |
 | `shutdown` / `no shutdown` | Administrative state | ⏳ planned |
 | `switchport mode access` | Access mode | ⏳ planned |
 | `switchport access vlan <id>` | Assign access VLAN | ⏳ planned |

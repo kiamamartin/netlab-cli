@@ -16,6 +16,18 @@ HOSTNAME_MAX_LENGTH = 63
 _HOSTNAME_RE = re.compile(r"^[A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?$")
 
 
+def validate_hostname(value: str) -> str:
+    """Validate and normalize an IOS hostname, raising ``ValueError`` if invalid."""
+    hostname = value.strip()
+    if not hostname or len(hostname) > HOSTNAME_MAX_LENGTH:
+        raise ValueError(f"hostname must be 1-{HOSTNAME_MAX_LENGTH} characters")
+    if _HOSTNAME_RE.match(hostname) is None:
+        raise ValueError(
+            "hostname must start with a letter and contain only letters, digits or hyphens"
+        )
+    return hostname
+
+
 class Config(BaseModel):
     """Immutable snapshot of a device's configuration (the startup-config content).
 
@@ -61,14 +73,7 @@ class Device(BaseModel):
     @field_validator("hostname")
     @classmethod
     def _valid_hostname(cls, value: str) -> str:
-        hostname = value.strip()
-        if not hostname or len(hostname) > HOSTNAME_MAX_LENGTH:
-            raise ValueError(f"hostname must be 1-{HOSTNAME_MAX_LENGTH} characters")
-        if _HOSTNAME_RE.match(hostname) is None:
-            raise ValueError(
-                "hostname must start with a letter and contain only letters, digits or hyphens"
-            )
-        return hostname
+        return validate_hostname(value)
 
     @model_validator(mode="after")
     def _validate_interfaces(self) -> Device:

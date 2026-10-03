@@ -5,6 +5,7 @@ from netlab.scenarios.loader import (
     discover_scenarios,
     load_scenario_file,
     parse_scenario,
+    resolve_scenario,
     validate_requirements,
 )
 from netlab.scenarios.schema import Scenario
@@ -15,5 +16,6 @@ __all__ = [
     "discover_scenarios",
     "load_scenario_file",
     "parse_scenario",
+    "resolve_scenario",
     "validate_requirements",
 ]

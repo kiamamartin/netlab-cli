@@ -57,7 +57,7 @@ Domain objects never depend on the terminal UI; the CLI depends on the domain, n
 | `netlab.devices` | `Device`, `Switch`, `Router`, `Host`, `Interface`, `VLAN`, configuration snapshots | ✅ implemented |
 | `netlab.network` | `Endpoint`, `Link`, `Topology` (validated), `NetworkState` aggregate | ✅ implemented |
 | `netlab.cli` | Typer application, `netlab` console script | ✅ minimal (`version`); sessions/scenarios pending |
-| `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors, show renderers | ⏳ planned |
+| `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors, show renderers | ✅ stage 3 implemented (modes, parser, structural commands); show renderers pending |
 | `netlab.scenarios` | Scenario schema, YAML loader, fail-early validation, initial-state builder | ✅ implemented |
 | `netlab.grading` | `Check`/validator architecture, `Assessment`, scoring | ⏳ planned |
 | `netlab.verification` | Verification commands generated from state | ⏳ planned |

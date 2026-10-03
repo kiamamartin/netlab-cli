@@ -27,7 +27,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   - `validate_requirements` checks that grading rules reference real devices/interfaces.
 - First milestone scenario `scenarios/vlan/ccna-vlan-001.yaml` (router-on-a-stick; 15 requirements
   across 5 categories summing to 100 points).
-- `netlab list` command backed by the scenario loader.
+- IOS CLI engine (`netlab.ios`):
+  - Five-mode state machine (`CliSession`) with context-aware prompts and full
+    `exit`/`end`/`enable`/`disable` transitions.
+  - IOS-style parser: per-word unique-prefix matching (`conf t`), case-insensitivity,
+    ambiguity (`e` in EXEC → `% Ambiguous command.`), incomplete-command detection for
+    truncated input, and caret-positioned `% Invalid input detected at '^' marker.` errors.
+  - Structural commands: `hostname`, `interface` (with IOS-like creation of missing
+    interfaces/subinterfaces), `vlan`, `name`, `help`/`?`; device gating registers VLAN
+    commands only on switches.
+  - Command history entries recorded per execution for later analytics (doc §34).
+- `netlab console --scenario <id> --device <host>` interactive device session.
 - Atomic `Interface.set_ip` / `Interface.clear_ip` operations for paired IPv4 state.
 - Minimal `netlab` CLI entry point (`netlab version`).
 - Unit tests for the domain model and CLI entry point.

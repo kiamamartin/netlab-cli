@@ -24,7 +24,17 @@ class NetLabError(Exception):
 
 
 class CommandError(NetLabError):
-    """A user-entered command could not be accepted."""
+    """A user-entered command could not be accepted.
+
+    ``position`` optionally records the character offset in the raw input line
+    where the problem was detected, so the CLI layer can render the IOS-style
+    ``^`` marker under the offending token.
+    """
+
+    def __init__(self, message: str, *, position: int | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.position = position
 
 
 class InvalidInputError(CommandError):
