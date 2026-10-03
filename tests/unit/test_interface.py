@@ -105,6 +105,30 @@ def test_ip_requires_prefix_pair() -> None:
         Interface(name="GigabitEthernet0/0", prefix_length=24)
 
 
+def test_set_ip_is_atomic() -> None:
+    iface = Interface(name="GigabitEthernet0/0")
+    iface.set_ip("192.168.10.1", 24)
+    assert iface.ip_address == IPv4Address("192.168.10.1")
+    assert iface.prefix_length == 24
+    assert iface.cidr == "192.168.10.1/24"
+
+
+def test_set_ip_accepts_ipv4address_and_revalidates() -> None:
+    iface = Interface(name="GigabitEthernet0/0")
+    iface.set_ip(IPv4Address("10.0.0.1"), 30)
+    assert iface.cidr == "10.0.0.1/30"
+    with pytest.raises(ValueError, match="prefix"):
+        iface.set_ip("10.0.0.1", 33)
+
+
+def test_clear_ip_is_atomic() -> None:
+    iface = Interface(name="GigabitEthernet0/0", ip_address="192.168.10.1", prefix_length=24)
+    iface.clear_ip()
+    assert iface.has_ip is False
+    assert iface.ip_address is None
+    assert iface.prefix_length is None
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

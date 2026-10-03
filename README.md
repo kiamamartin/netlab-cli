@@ -37,6 +37,7 @@ uv sync
 
 ```bash
 uv run netlab version
+uv run netlab list
 ```
 
 ## Running the tests
@@ -57,8 +58,8 @@ uv run ruff check .
 
 ## Roadmap
 
-1. Domain model & network state ✅ (this release)
-2. Scenario + topology YAML loading
+1. Domain model & network state ✅
+2. Scenario + topology YAML loading (`netlab list`) ✅
 3. IOS CLI state machine
 4. Configuration commands (VLANs, switchports, IPv4)
 5. Verification (`show`) commands rendered from state

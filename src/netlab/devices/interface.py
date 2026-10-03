@@ -186,6 +186,24 @@ class Interface(BaseModel):
             raise ValueError("ip_address and prefix_length must be configured together")
         return self
 
+    def set_ip(self, address: str | IPv4Address, prefix: int) -> None:
+        """Configure IPv4 addressing atomically.
+
+        Address and prefix form a single logical operation; assigning them as
+        two separate attributes would trip the paired invariant under
+        ``validate_assignment``.
+        """
+        object.__setattr__(self, "ip_address", IPv4Address(str(address)))
+        object.__setattr__(self, "prefix_length", int(prefix))
+        # Re-validate the complete model so invariants still hold.
+        Interface.model_validate(self.model_dump())
+
+    def clear_ip(self) -> None:
+        """Remove IPv4 addressing atomically (``no ip address``)."""
+        object.__setattr__(self, "ip_address", None)
+        object.__setattr__(self, "prefix_length", None)
+        Interface.model_validate(self.model_dump())
+
     @property
     def is_subinterface(self) -> bool:
         return "." in self.name

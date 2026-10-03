@@ -82,5 +82,9 @@ class TopologyError(DomainError):
     """The topology is structurally invalid."""
 
 
+class ScenarioError(DomainError):
+    """A scenario file is missing, malformed, or fails validation."""
+
+
 class DuplicateEndpointError(TopologyError):
     """An interface is used by more than one link."""

@@ -58,7 +58,7 @@ Domain objects never depend on the terminal UI; the CLI depends on the domain, n
 | `netlab.network` | `Endpoint`, `Link`, `Topology` (validated), `NetworkState` aggregate | ✅ implemented |
 | `netlab.cli` | Typer application, `netlab` console script | ✅ minimal (`version`); sessions/scenarios pending |
 | `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors, show renderers | ⏳ planned |
-| `netlab.scenarios` | Scenario schema, YAML loader, fail-early validation | ⏳ planned |
+| `netlab.scenarios` | Scenario schema, YAML loader, fail-early validation, initial-state builder | ✅ implemented |
 | `netlab.grading` | `Check`/validator architecture, `Assessment`, scoring | ⏳ planned |
 | `netlab.verification` | Verification commands generated from state | ⏳ planned |
 | `netlab.persistence` | Session save/resume (JSON), later SQLite records | ⏳ planned |

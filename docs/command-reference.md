@@ -8,7 +8,7 @@ commands below are marked accordingly. Do not rely on any command marked *planne
 | Command | Description | Status |
 |---|---|---|
 | `netlab version` | Print the NetLab CLI version | ✅ implemented |
-| `netlab list` / `netlab scenarios` | List available scenarios | ⏳ planned |
+| `netlab list` / `netlab scenarios` | List available scenarios (invalid files reported and skipped) | ✅ `netlab list` implemented |
 | `netlab start <scenario>` | Load a scenario and start a lab session | ⏳ planned |
 | `netlab devices` | List session devices; connect interactively | ⏳ planned |
 | `netlab status` | Session status | ⏳ planned |

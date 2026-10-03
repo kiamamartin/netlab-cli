@@ -1,108 +1,119 @@
 # Scenario authoring
 
-Status: **draft** — the Pydantic schema and loader land with the scenario-loading stage. The shape
-below reflects the architecture document (§13, §18, §40) and will be validated by
-`netlab.scenarios` with fail-early diagnostics.
+Status: **implemented** — the schema lives in `netlab/scenarios/schema.py`, the loader in
+`netlab/scenarios/loader.py`. Scenarios are validated fail-early: YAML parse → Pydantic schema
+(`extra="forbid"` everywhere) → topology build (links checked against real interfaces) →
+initial-state application. The reference scenario is
+[`scenarios/vlan/ccna-vlan-001.yaml`](../scenarios/vlan/ccna-vlan-001.yaml).
 
 ## Principles
 
 - Scenarios are **declarative YAML** — no embedded code, no hard-coded grading logic.
 - **Prompt-free learning**: objectives describe outcomes ("Configure VLAN 10 for the Administration
   department"), never command transcripts.
-- Invalid scenarios **fail early** with file context: schema → topology → grading rules →
-  automated test, before a scenario becomes available.
-- One scenario may produce **variants** (different VLAN numbers/networks) to defeat memorization.
+- Invalid scenarios **fail early** with file context.
+- One scenario may later produce **variants** (different VLAN numbers/networks) to defeat
+  memorization.
 
 ## File shape
 
 ```yaml
-id: ccna-vlan-001
+id: ccna-vlan-001              # lowercase kebab-case
 title: Department VLAN Deployment
 version: 1
+difficulty: beginner           # beginner|intermediate|advanced|exam|troubleshooting
 
 metadata:
-  difficulty: beginner        # beginner|intermediate|advanced|exam|troubleshooting (levels 1–5)
   estimated_minutes: 20
-  skills:
-    - vlan
-    - access-ports
-    - trunking
+  skills: [vlan, access-ports, trunking]   # recognized skill tags
 
-topology:                     # devices, interfaces, links (see below)
-  ...
-
-initial_state:                # optional starting configuration (broken networks for
-  ...                         # troubleshooting scenarios go here)
-
-objectives:
-  - Create VLAN 10 (ADMIN) and VLAN 20 (SALES)
-  - Configure access ports for PC-A and PC-B
-  - Configure the uplink to R1 as an 802.1Q trunk
-  - Configure router-on-a-stick inter-VLAN routing
-
-requirements:                 # deterministic grading rules
-  - id: vlan10-exists
-    type: vlan_exists
-    device: SW1
-    vlan: 10
-    points: 10
-
-verification:                 # reserved (connectivity checks arrive with the ping engine)
-  - id: pca-gateway
-    type: connectivity
-    source: PC-A
-    destination: 192.168.10.1
-    expected: true
-```
-
-## Topology
-
-Devices declare their type and interfaces; links reference canonical endpoints.
-
-```yaml
 topology:
   devices:
     - name: R1
-      type: router
-      interfaces: [GigabitEthernet0/0/0]
+      type: router             # router|switch|pc|server
+      interfaces:
+        - name: GigabitEthernet0/0/0   # long or short form; canonicalized on load
     - name: SW1
       type: switch
-      interfaces: [GigabitEthernet0/1, GigabitEthernet0/2, GigabitEthernet0/3]
+      interfaces:
+        - name: GigabitEthernet0/1
+          description: Uplink-to-R1
     - name: PC-A
       type: pc
-      interfaces: [Ethernet0]
-    - name: PC-B
-      type: pc
-      interfaces: [Ethernet0]
+      interfaces:
+        - name: Ethernet0
 
   links:
-    - source: R1:GigabitEthernet0/0/0
-      destination: SW1:GigabitEthernet0/1
-    - source: SW1:GigabitEthernet0/2
-      destination: PC-A:Ethernet0
-    - source: SW1:GigabitEthernet0/3
-      destination: PC-B:Ethernet0
+    - source: R1:Gi0/0/0       # plain "HOSTNAME:Interface" strings (either end may be abbreviated)
+      destination: SW1:Gi0/1
+
+initial_state:                 # optional pre-configuration (troubleshooting labs)
+  vlans:
+    - { device: SW1, vlan_id: 10, name: ADMIN }
+  interfaces:
+    - device: SW1
+      interface: Gi0/2
+      shutdown: true
+      switchport: { mode: access, access_vlan: 10 }
+      ip: { address: 192.168.10.5, prefix: 24 }
+  hosts:
+    - { device: PC-A, gateway: 192.168.10.1 }
+
+objectives:
+  - Create VLAN 10 for the Administration department.
+
+requirements:                  # deterministic grading rules; points MUST sum to grading.total
+  - id: vlan10-exists          # unique within the scenario
+    category: VLAN Configuration
+    description: VLAN 10 must exist on SW1
+    points: 10
+    type: vlan_exists
+    device: SW1
+    vlan_id: 10
+
+verification: []               # reserved for connectivity checks (Phase 3 ping engine)
+grading:
+  total: 100
 ```
 
-## First milestone scenario (fixed)
+## Requirement types
 
-```text
-                R1
-                 |
-              trunk (802.1Q)
-                 |
-                SW1
-               /    \
-        Gi0/2 /      \ Gi0/3
-             /        \
-         PC-A         PC-B
-        VLAN 10       VLAN 20
-        192.168.10.x  192.168.20.x
+All requirement types validate their `device`/`interface` references when the loader runs
+(`validate_requirements`), so scenarios cannot ship with ungradeable rules. Interfaces are stored
+canonically; subinterface names (`GigabitEthernet0/0/0.10`) are allowed to reference interfaces the
+student creates during the lab.
+
+| Type | Fields | Checks at grading time |
+|---|---|---|
+| `vlan_exists` | `device`, `vlan_id`, optional `name` | VLAN exists (and name matches if given) |
+| `vlan_name` | `device`, `vlan_id`, `name` | VLAN name equals `name` |
+| `interface_mode` | `device`, `interface`, `mode: access\|trunk` | Switchport mode |
+| `access_vlan` | `device`, `interface`, `vlan_id` | Access VLAN assignment |
+| `trunk_native_vlan` | `device`, `interface`, `vlan_id` | Native VLAN on a trunk |
+| `trunk_allowed_vlans` | `device`, `interface`, `vlans` (list) | Allowed VLAN set contains exactly these |
+| `ip_address` | `device`, `interface`, `address`, `prefix` | Interface IPv4 address/prefix |
+| `host_ip` | `device`, `interface`, `address`, `prefix` | End-host interface IPv4 |
+| `host_gateway` | `device`, `gateway` | End-host default gateway |
+| `subinterface_encapsulation` | `device`, `interface`, `vlan_id` | 802.1Q tag on a router subinterface |
+
+## Validation rules
+
+- `id` matches `^[a-z0-9]+(-[a-z0-9]+)*$`; `title` non-empty; `version >= 1`.
+- `difficulty` is one of the five levels (doc §20).
+- Device hostnames are unique; subinterface `parent` must be declared in the same device.
+- Link endpoints must be `HOSTNAME:Interface` strings naming existing interfaces (built and checked
+  against real devices at load time — duplicate endpoints, unknown devices/interfaces fail here).
+- Requirement `id`s are unique; `points > 0`; requirement points **must sum to `grading.total`**.
+- Every field list is closed: unknown keys anywhere in the file are rejected.
+
+## Loading scenarios programmatically
+
+```python
+from netlab.scenarios import build_initial_state, load_scenario_file
+
+scenario = load_scenario_file("scenarios/vlan/ccna-vlan-001.yaml")
+state = build_initial_state(scenario)   # NetworkState ready for a lab session
 ```
 
-- VLAN 10 = `ADMIN`, VLAN 20 = `SALES`
-- SW1: Gi0/1 → trunk to R1, Gi0/2 → VLAN 10, Gi0/3 → VLAN 20
-- R1: `GigabitEthernet0/0/0.10` = 192.168.10.1/24, `GigabitEthernet0/0/0.20` = 192.168.20.1/24
-- PCs: addressing + default gateway
-
-No DHCP, OSPF, ACLs, STP, or EtherChannel in this scenario.
+`discover_scenarios(directory)` returns `(loaded, errors)` so one broken file cannot hide the rest
+of the library; `netlab list` uses this.
