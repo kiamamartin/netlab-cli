@@ -77,7 +77,16 @@ configuration and `show` commands follow in stages 4–5. Do not rely on any com
 
 | Command | Effect | Status |
 |---|---|---|
-| `description <text>` | Set description | ⏳ planned |
+| `description <text>` | Set description (free text) | ✅ implemented |
+| `shutdown` / `no shutdown` | Administrative state | ✅ implemented |
+| `switchport mode access` | Access mode | ✅ implemented (switches) |
+| `switchport access vlan <id>` | Assign access VLAN (auto-creates missing VLAN, decision B6; does **not** imply mode) | ✅ implemented |
+| `switchport mode trunk` | Trunk mode | ✅ implemented (switches) |
+| `switchport trunk allowed vlan <list>` | Replace list; IOS verbs `all`/`add`/`remove`/`except` supported | ✅ implemented |
+| `switchport trunk native vlan <id>` | Set native VLAN | ✅ implemented |
+| `ip address <addr> <mask>` | Configure IPv4 on L3 interface/subinterface (mask or `/prefix`) | ✅ implemented |
+| `no ip address` | Clear IPv4 | ✅ implemented |
+| `encapsulation dot1q <vlan>` | 802.1Q tag on router subinterfaces | ✅ implemented |
 | `exit` | Return to global config | ✅ implemented |
 | `shutdown` / `no shutdown` | Administrative state | ⏳ planned |
 | `switchport mode access` | Access mode | ⏳ planned |
@@ -91,6 +100,17 @@ configuration and `show` commands follow in stages 4–5. Do not rely on any com
 
 Commands are only implemented when their effects are represented correctly in network state —
 `show` output must always be rendered from that state, never hard-coded.
+
+## End-host commands (decision B9)
+
+PCs and servers accept a minimal, non-mode-based surface (mirroring Packet Tracer's IP
+Configuration utility):
+
+| Command | Effect | Status |
+|---|---|---|
+| `ip address <addr> <mask>` | Address the host's first interface | ✅ implemented |
+| `no ip address` | Clear host addressing | ✅ implemented |
+| `ip default-gateway <addr>` | Set the default gateway | ✅ implemented |
 
 ## IOS-style error behaviour (educational consistency)
 

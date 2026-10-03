@@ -38,6 +38,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
     commands only on switches.
   - Command history entries recorded per execution for later analytics (doc §34).
 - `netlab console --scenario <id> --device <host>` interactive device session.
+- Configuration commands (stage 4) mutating the authoritative network state:
+  - `switchport mode access|trunk`, `switchport access vlan` (auto-creates missing
+    VLANs per decision B6; assigning the VLAN does not imply the mode), trunk
+    `allowed vlan` with IOS `all`/`add`/`remove`/`except` verbs, `trunk native vlan`.
+  - `ip address A.B.C.D M.M.M.M` (dot-mask or `/prefix`), `no ip address`,
+    `encapsulation dot1q <vlan>` on subinterfaces only.
+  - `description` (free text), `shutdown`/`no shutdown`.
+  - End-host surface per decision B9: `ip address`, `no ip address`,
+    `ip default-gateway` on PCs/servers (both EXEC modes, Packet Tracer style).
+  - Parser upgraded for multi-token arguments, free-text arguments, and
+    variable-length VLAN-list arguments with caret-positioned errors.
+  - Golden-configuration smoke test: the entire milestone lab executes through
+    the CLI engine with zero error output.
 - Atomic `Interface.set_ip` / `Interface.clear_ip` operations for paired IPv4 state.
 - Minimal `netlab` CLI entry point (`netlab version`).
 - Unit tests for the domain model and CLI entry point.

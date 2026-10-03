@@ -88,6 +88,13 @@ class InvalidVlanListError(DomainError):
     """A VLAN list (e.g. '10,20-24') could not be parsed."""
 
 
+class InvalidOperationError(DomainError):
+    """The operation is not valid for the target object.
+
+    Example: 802.1Q encapsulation on a physical (non-sub) interface.
+    """
+
+
 class TopologyError(DomainError):
     """The topology is structurally invalid."""
 

@@ -34,18 +34,27 @@ class CommandSpec:
     ``name`` is the canonical full form (e.g. ``configure terminal``); when
     ``pattern`` is set it gives the minimal accept prefix for each word, so
     ``configure terminal`` with ``("conf", "t")`` accepts ``conf t`` and
-    ``configure terminal`` but not ``conf te``. Commands with ``argument``
-    require exactly one argument token (validated by ``argument_validator``
-    when provided), unless ``argument_help`` marks a free-text argument that
-    may contain spaces.
+    ``configure terminal`` but not ``conf ta``.
+
+    Argument handling:
+
+    - ``argument=""`` — no argument; surplus tokens are invalid input.
+    - ``argument="X"`` with ``argument_max=1`` — exactly one token.
+    - ``argument_max > 1`` — 1..N tokens consumed by ``multi_validator``
+      (``argument_min`` sets the lower bound, e.g. ``ip address`` needs 2).
+    - ``free_text=True`` — the remainder of the line, joined with spaces
+      (e.g. a VLAN name containing spaces).
     """
 
     name: str
     mode: ConfigMode
     pattern: tuple[str, ...] | None = None
     argument: str = ""
+    argument_min: int = 1
+    argument_max: int = 1
+    free_text: bool = False
     argument_validator: Callable[[str], object] | None = None
-    argument_help: bool = False
+    multi_validator: Callable[[list[str]], object] | None = None
     description: str = ""
 
     def words(self) -> tuple[str, ...]:
@@ -117,20 +126,42 @@ class CommandRegistry:
     ) -> tuple[Command, object | None]:
         argument: object | None = None
         if spec.argument:
-            arg_token = tokens[len(spec.words())]
-            if spec.argument_validator is not None:
+            arg_start = len(spec.words())
+            arg_tokens = tokens[arg_start:]
+            fail_at = spans[arg_start][0]
+            if spec.free_text:
+                joined = " ".join(arg_tokens)
+                if spec.argument_validator is not None:
+                    try:
+                        argument = spec.argument_validator(joined)
+                    except CommandError as exc:
+                        if exc.position is None:
+                            exc.position = fail_at
+                        raise
+                    except Exception as exc:
+                        raise InvalidInputError(str(exc), position=fail_at) from exc
+                else:
+                    argument = joined
+            elif spec.multi_validator is not None:
                 try:
-                    argument = spec.argument_validator(arg_token)
+                    argument = spec.multi_validator(arg_tokens[: spec.argument_max])
                 except CommandError as exc:
                     if exc.position is None:
-                        exc.position = spans[len(spec.words())][0]
+                        exc.position = fail_at
                     raise
                 except Exception as exc:
-                    raise InvalidInputError(
-                        str(exc), position=spans[len(spec.words())][0]
-                    ) from exc
+                    raise InvalidInputError(str(exc), position=fail_at) from exc
+            elif spec.argument_validator is not None:
+                try:
+                    argument = spec.argument_validator(arg_tokens[0])
+                except CommandError as exc:
+                    if exc.position is None:
+                        exc.position = fail_at
+                    raise
+                except Exception as exc:
+                    raise InvalidInputError(str(exc), position=fail_at) from exc
             else:
-                argument = arg_token
+                argument = arg_tokens[0]
         return (
             Command(raw=raw, verb=spec.name, arguments=tuple(tokens[1:]), mode=mode),
             argument,
@@ -184,17 +215,26 @@ def _match(
             return False, spans[index][0], False, index
 
     if spec.argument:
-        if len(tokens) == len(words):
+        available = len(tokens) - len(words)
+        if available == 0:
             return False, None, True, len(words)  # name complete, argument missing
-        if not spec.argument_help:
-            if len(tokens) > len(words) + 1:
-                return False, spans[len(words) + 1][0], False, len(words)
-            arg_token = tokens[len(words)]
-            if spec.argument_validator is not None:
-                try:
-                    spec.argument_validator(arg_token)
-                except Exception:
-                    return False, spans[len(words)][0], False, len(words)
+        if spec.free_text:
+            return True, None, False, len(words)
+        if available < spec.argument_min:
+            return False, (spans[-1][1] if spans else 0), True, len(words)
+        if available > spec.argument_max:
+            return False, spans[len(words) + spec.argument_max][0], False, len(words)
+        arg_tokens = tokens[len(words) : len(words) + available]
+        if spec.multi_validator is not None:
+            try:
+                spec.multi_validator(arg_tokens)
+            except Exception:
+                return False, spans[len(words)][0], False, len(words)
+        elif spec.argument_validator is not None:
+            try:
+                spec.argument_validator(arg_tokens[0])
+            except Exception:
+                return False, spans[len(words)][0], False, len(words)
         return True, None, False, len(words)
 
     if len(tokens) > len(words):

@@ -46,7 +46,7 @@ def make_registry() -> CommandRegistry:
     ))
     registry.register(CommandSpec(
         name="name", mode=ConfigMode.VLAN_CONFIG, pattern=("na",),
-        argument="NAME", argument_help=True,
+        argument="NAME", free_text=True,
     ))
     return registry
 
