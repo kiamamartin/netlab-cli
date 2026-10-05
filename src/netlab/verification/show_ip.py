@@ -62,13 +62,17 @@ def _device_from_snapshot(snapshot: dict[str, Any]) -> Device | None:
 
 
 def show_ip_interface_brief(state: NetworkState, device: Device) -> str:
-    """Render ``show ip interface brief``."""
-    lines = [
-        "Interface              IP-Address/Mask    Status              Protocol",
-        "--------------------- ------------------- ------------------- ---------",
-    ]
+    """Render ``show ip interface brief``.
+
+    The interface column is sized from the widest name actually present, so
+    long interface names (``TenGigabitEthernet0/0/0.255``) cannot shift the
+    remaining columns the way a hard-coded 21-character column would.
+    """
+    rows: list[tuple[str, str, str, str]] = []
+    width = len("Interface")
     for name in device.interface_names:
         interface = device.get_interface(name)
+        width = max(width, len(interface.short_name))
         address = interface.cidr if interface.has_ip else "unassigned"
         if state.interface_is_up(device.hostname, name):
             status = protocol = "up"
@@ -76,7 +80,16 @@ def show_ip_interface_brief(state: NetworkState, device: Device) -> str:
             status, protocol = "administratively down", "down"
         else:
             status = protocol = "down"
-        lines.append(f"{interface.short_name:<21} {address:<19} {status:<19} {protocol}")
+        rows.append((interface.short_name, address, status, protocol))
+    lines = [
+        f"{'Interface':<{width}} {'IP-Address/Mask':<19} "
+        f"{'Status':<19} Protocol",
+        f"{'-' * width} {'-' * 19} {'-' * 19} ---------",
+    ]
+    for short_name, address, status, protocol in rows:
+        lines.append(
+            f"{short_name:<{width}} {address:<19} {status:<19} {protocol}"
+        )
     return "\n".join(lines)
 
 

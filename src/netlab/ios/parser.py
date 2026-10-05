@@ -68,6 +68,16 @@ class CommandRegistry:
     commands: dict[ConfigMode, list[CommandSpec]] = field(default_factory=dict)
 
     def register(self, spec: CommandSpec) -> None:
+        """Register a command; rejects duplicate (mode, name) registrations.
+
+        Duplicate registration would otherwise produce spurious ambiguity at
+        resolve time, so it is rejected here where the mistake is visible.
+        """
+        existing = self.commands.get(spec.mode, [])
+        if any(registered.name == spec.name for registered in existing):
+            raise ValueError(
+                f"command {spec.name!r} is already registered in mode {spec.mode.value!r}"
+            )
         self.commands.setdefault(spec.mode, []).append(spec)
 
     def specs_for(self, mode: ConfigMode) -> list[CommandSpec]:
@@ -109,7 +119,7 @@ class CommandRegistry:
 
         if len(matches) > 1:
             raise AmbiguousCommandError("ambiguous command", position=failure_position)
-        if incomplete:
+        if incomplete and not matches:
             raise IncompleteCommandError("incomplete command", position=failure_position)
         if len(matches) == 1:
             return self._build(matches[0], raw, tokens, spans, mode)
@@ -182,17 +192,33 @@ def _token_spans(raw: str, tokens: list[str]) -> list[tuple[int, int]]:
 def _word_matches(
     word: str, token: str, pattern: tuple[str, ...] | None, index: int
 ) -> bool:
-    """IOS-style matching of one input token against one command word."""
+    """IOS-style matching of one input token against one command word.
+
+    A token matches when it is a unique prefix of the command word: the token
+    must be no longer than the word, the word must start with the token, and
+    the token must start with the registered minimal prefix for that word (if
+    one is registered). Full-word input always matches.
+
+    Matching is case-insensitive, mirroring IOS.
+    """
     if token.lower() == word.lower():
         return True
     if pattern is None or index >= len(pattern):
         return False
     min_prefix = pattern[index]
-    return (
-        token.lower().startswith(min_prefix.lower())
-        and len(token) <= len(word)
-        and word.lower().startswith(token.lower())
-    )
+    token_lower = token.lower()
+    word_lower = word.lower()
+    # Unique-prefix form: token must be a strict prefix of the word (shorter
+    # than the word) and must itself start with the registered minimal prefix.
+    # This is what lets ``conf t`` match ``configure terminal`` while rejecting
+    # ``conf ta``.
+    if len(token_lower) >= len(word_lower):
+        return False
+    if not word_lower.startswith(token_lower):
+        return False
+    if not token_lower.startswith(min_prefix.lower()):
+        return False
+    return True
 
 
 def _match(
@@ -237,6 +263,7 @@ def _match(
                 return False, spans[len(words)][0], False, len(words)
         return True, None, False, len(words)
 
+    # No argument expected: surplus tokens are invalid input.
     if len(tokens) > len(words):
         return False, spans[len(words)][0], False, len(words)
     return True, None, False, len(words)

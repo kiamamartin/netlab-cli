@@ -202,7 +202,7 @@ class TestHistory:
     def test_empty_line_not_recorded(self) -> None:
         session = make_session()
         session.execute("   ")
-        assert session.history == []
+        assert list(session.history) == []
 
 
 class TestConsole:
