@@ -44,6 +44,7 @@ from netlab.ios.errors import render_error
 from netlab.ios.parser import CommandRegistry
 from netlab.ios.transitions import SessionExit, exit_target, prompt_for
 from netlab.network.state import NetworkState
+from netlab.scenarios.schema import Scenario
 from netlab.verification.show import show_interfaces_trunk, show_vlan_brief
 from netlab.verification.show_ip import (
     show_ip_interface_brief,
@@ -305,8 +306,10 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
         state: NetworkState,
         hostname: str,
         registry: CommandRegistry | None = None,
+        scenario: Scenario | None = None,
     ) -> None:
         self._state = state
+        self._scenario = scenario
         self._device: Device = state.device(hostname)
         self.registry = registry or build_registry(self._device.device_type)
         self.mode = ConfigMode.USER_EXEC
@@ -581,6 +584,24 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
         self._device.copy_running_to_startup()
         return "Building configuration...\n[OK]"
 
+    def _cmd_assess(self, _argument: object) -> str:
+        """Grade the lab: session renders the structured assessment (doc §55).
+
+        The session owns no grading logic — it delegates to the deterministic
+        engine, which reads the authoritative state, and only renders the
+        resulting :class:`Assessment`.
+        """
+        from netlab.grading import grade, render_assessment
+        from netlab.scenarios.schema import Scenario
+
+        scenario = self._scenario
+        if scenario is None:
+            raise InvalidInputError("no scenario is attached to this session")
+        assert isinstance(scenario, Scenario)
+        assessment = grade(scenario, self._state)
+        report = render_assessment(assessment)
+        return report
+
     # --- Dispatch table ---------------------------------------------------------
 
     def _build_handlers(self) -> dict[str, Callable[[object], str]]:
@@ -601,6 +622,8 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
             "show running-config": self._cmd_show_running_config,
             "show startup-config": self._cmd_show_startup_config,
             "copy running-config startup-config": self._cmd_copy_run_start,
+            "assess": self._cmd_assess,
+            "submit": self._cmd_assess,  # alias: doc §27 command list
             "show": self._cmd_show,
             # Interface configuration (DeviceConfigMixin)
             "description": self.cmd_description,
@@ -659,6 +682,7 @@ def run_console(
     hostname: str,
     lines: Iterable[str] | None = None,
     write: Callable[[str], None] = lambda s: None,
+    scenario: Scenario | None = None,
 ) -> None:
     """Run an interactive device session over ``lines``/``write``.
 
@@ -666,12 +690,12 @@ def run_console(
     interactive TTY is attached. When the session is attached to a TTY and the
     terminal supports ANSI escapes, raw mode plus a small line editor is
     enabled, giving the student cursor control with arrow keys and previous-
-    command buffer traversal.
+    command buffer traversal. ``scenario`` enables ``assess``/``submit``.
 
     Ends on ``exit`` in user EXEC (raising :class:`SessionExit`) or end of
     input.
     """
-    session = CliSession(state, hostname)
+    session = CliSession(state, hostname, scenario=scenario)
 
     # Detect whether we are on a TTY and can use raw terminal mode.
     input_mode: _InputMode = _InputMode.PIPE

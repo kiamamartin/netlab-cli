@@ -194,7 +194,7 @@ def start_scenario(
         typer.echo("")
     try:
         state = build_initial_state(scenario)
-        run_console(state, hostname, sys.stdin, typer.echo)
+        run_console(state, hostname, sys.stdin, typer.echo, scenario=scenario)
     except SessionExit:
         pass
     except NetLabError as exc:
@@ -241,7 +241,7 @@ def console(
     hostname = _pick_device(scenario, device)
     try:
         state = build_initial_state(scenario)
-        run_console(state, hostname, sys.stdin, typer.echo)
+        run_console(state, hostname, sys.stdin, typer.echo, scenario=scenario)
     except SessionExit:
         pass
     except NetLabError as exc:

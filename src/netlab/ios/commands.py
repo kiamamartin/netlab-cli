@@ -388,6 +388,23 @@ def show_specs() -> list:
             pattern=("cop", "ru", "st"),
         )
     )
+    # Assessment commands (doc §55): run from privileged EXEC like `copy`.
+    specs.append(
+        CommandSpec(
+            name="assess",
+            mode=ConfigMode.PRIVILEGED_EXEC,
+            pattern=("ass",),
+            description="Grade the lab and show the assessment",
+        )
+    )
+    specs.append(
+        CommandSpec(
+            name="submit",
+            mode=ConfigMode.PRIVILEGED_EXEC,
+            pattern=("sub",),
+            description="Submit the lab for grading (alias of assess)",
+        )
+    )
     return specs
 
 

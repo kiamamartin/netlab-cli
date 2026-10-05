@@ -103,5 +103,9 @@ class ScenarioError(DomainError):
     """A scenario file is missing, malformed, or fails validation."""
 
 
+class GradingError(DomainError):
+    """The grading engine could not evaluate a requirement."""
+
+
 class DuplicateEndpointError(TopologyError):
     """An interface is used by more than one link."""
