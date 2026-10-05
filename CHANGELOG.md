@@ -7,6 +7,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ## [Unreleased]
 
 ### Added
+- Deterministic grading engine (`netlab.grading`, milestone 6):
+  - `grade(scenario, state)` → frozen `Assessment` (results in scenario order,
+    per-category rollup, percentage, summary) — no LLM, no rendered text, no
+    timestamps; identical state always grades identically.
+  - One deterministic validator per requirement type (10 types), resolved via a
+    type→validator registry; unknown types raise `GradingError`.
+  - Explicit partial credit (doc §24): half-configured trunk, access VLAN
+    without the mode command, unpruned trunk allowed-list, right subnet with
+    wrong host address, shutdown interface — each a fixed fraction chosen by
+    the check, never invented at runtime. Default state values never earn
+    points (an unconfigured lab scores exactly 0).
+  - Terminal report renderer consuming the structured assessment
+    (`render_assessment`); calculates nothing, no width assumptions.
+  - `assess` / `submit` session commands (privileged EXEC) render the report.
+  - Golden-configuration gate: doc §74 router-on-a-stick golden config through
+    the real CLI engine scores 100/100; 13 negative mutations each fail exactly
+    the expected requirements; determinism, state-immutability, and
+    integration tests (`tests/scenarios/`, `tests/integration/`).
+- Engineering audit (`docs/milestone-1-5-audit.md`) with measured baseline
+  (tests, lint, CLI smoke run, performance), defect list D1–D8, milestone
+  status table, and explicit deferred items.
 - uv project scaffolding (`pyproject.toml`, dev dependency group, `netlab` console script).
 - Phase 0 architecture review (`docs/architecture-review.md`).
 - Domain model in `netlab.core` and `netlab.devices`:
@@ -60,7 +81,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
   - Golden-configuration smoke test: the entire milestone lab executes through
     the CLI engine with zero error output.
 - Atomic `Interface.set_ip` / `Interface.clear_ip` operations for paired IPv4 state.
-- Minimal `netlab` CLI entry point (`netlab version`).
+- Minimal `netlab` CLI entry point (`netlab version`), `netlab list` / `netlab devices` /
+  `netlab start` / `netlab console`.
 - Unit tests for the domain model and CLI entry point.
+
+### Fixed
+- Console loop now terminates at pipe EOF instead of re-prompting forever, and
+  `run_console` propagates `SessionExit` (documented contract) — regression-tested.
+- Removed left-over debug prints and a dead output buffer from the session.
+- Restored IOS-style `% Ambiguous command.` for bare `e` in EXEC modes; duplicate
+  command registration is now rejected at registration time instead of being
+  deduplicated at resolve time.
+- Command history is bounded (`HISTORY_BUFFER_SIZE`, deque-backed).
+- `show ip interface brief` sizes the interface column from the widest short name,
+  so long interface names cannot shift the remaining columns.
 
 [Unreleased]: https://github.com/netlab-cli/netlab-cli/compare/v0.0.0...HEAD

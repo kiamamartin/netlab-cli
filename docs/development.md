@@ -23,14 +23,15 @@ Test layout (directories appear as they gain content):
 
 ```text
 tests/
-├── unit/          # domain models, parsers, validators — no I/O
+├── unit/          # domain models, parsers, validators, grading checks — no I/O
 ├── integration/   # CLI → parser → state → verification → grading
-├── scenarios/     # scenario loading, golden configurations, negative mutations
-└── regression/    # fixed regressions
+├── scenarios/     # golden configurations, negative mutations, determinism
+└── regression/    # fixed regressions (see tests/unit/test_audit_regressions.py)
 ```
 
 Every feature lands with tests. Scenario grading is only trusted once the golden configuration
-scores 100/100 and each negative mutation fails its expected checks.
+scores 100/100 and each negative mutation fails its expected checks
+(`tests/scenarios/test_golden_ccna_vlan_001.py` is that gate for the first lab).
 
 ## Linting / formatting
 

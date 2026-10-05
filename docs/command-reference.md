@@ -56,6 +56,7 @@ configuration and `show` commands follow in stages 4–5. Do not rely on any com
 | `show ip interface brief` | Interface IPv4 + up/down table (derived operational state) | ✅ implemented |
 | `show mac address-table` | MAC table (populated once L2 simulation exists) | ⏳ planned |
 | `copy running-config startup-config` | Snapshot running state into startup-config | ✅ implemented (privileged EXEC) |
+| `assess` / `submit` | Run the deterministic grader against current state and render the assessment report | ✅ implemented (privileged EXEC; requires a scenario-backed session) |
 
 ### Global configuration
 
