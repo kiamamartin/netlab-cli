@@ -44,3 +44,77 @@ def test_list_reports_invalid_scenarios(tmp_path: Path) -> None:
     result = runner.invoke(app, ["list", "--scenarios-dir", str(tmp_path)])
     assert result.exit_code == 1
     assert "broken.yaml" in result.output
+
+
+class TestGlobalOptions:
+    def test_root_version_flag(self) -> None:
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert __version__ in result.output
+
+
+class TestListOptions:
+    def test_difficulty_filter_matching(self) -> None:
+        result = runner.invoke(
+            app, ["list", "--difficulty", "beginner", "--scenarios-dir", str(SCENARIOS_DIR)]
+        )
+        assert result.exit_code == 0
+        assert "ccna-vlan-001" in result.output
+
+    def test_difficulty_filter_no_match(self) -> None:
+        result = runner.invoke(
+            app, ["list", "--difficulty", "advanced", "--scenarios-dir", str(SCENARIOS_DIR)]
+        )
+        assert result.exit_code == 0
+        assert "No scenarios found" in result.output
+
+    def test_difficulty_filter_case_insensitive(self) -> None:
+        result = runner.invoke(
+            app, ["list", "--difficulty", "BEGINNER", "--scenarios-dir", str(SCENARIOS_DIR)]
+        )
+        assert result.exit_code == 0
+        assert "ccna-vlan-001" in result.output
+
+    def test_difficulty_filter_invalid_value_rejected(self) -> None:
+        result = runner.invoke(app, ["list", "--difficulty", "expert"])
+        assert result.exit_code != 0
+        assert "beginner" in result.output.lower()
+
+
+class TestScenarioIdForms:
+    def test_devices_lists_scenario_devices(self) -> None:
+        result = runner.invoke(
+            app,
+            ["devices", "--scenario-id", "ccna-vlan-001", "--scenarios-dir", str(SCENARIOS_DIR)],
+        )
+        assert result.exit_code == 0, result.output
+        assert "SW1" in result.output
+        assert "R1" in result.output
+
+    def test_devices_unknown_scenario_errors(self) -> None:
+        result = runner.invoke(
+            app,
+            ["devices", "--scenario-id", "no-such-lab", "--scenarios-dir", str(SCENARIOS_DIR)],
+        )
+        assert result.exit_code == 1
+
+    def test_start_positional_and_option_conflict_rejected(self) -> None:
+        result = runner.invoke(
+            app,
+            [
+                "start", "ccna-vlan-001", "--scenario-id", "ccna-vlan-001",
+                "--scenarios-dir", str(SCENARIOS_DIR),
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not both" in result.output
+
+    def test_start_missing_scenario_id_rejected(self) -> None:
+        result = runner.invoke(app, ["start", "--scenarios-dir", str(SCENARIOS_DIR)])
+        assert result.exit_code != 0
+        assert "scenario id" in result.output.lower()
+
+    def test_console_missing_scenario_id_rejected(self) -> None:
+        result = runner.invoke(app, ["console", "--scenarios-dir", str(SCENARIOS_DIR)])
+        assert result.exit_code != 0
+        assert "scenario id" in result.output.lower()

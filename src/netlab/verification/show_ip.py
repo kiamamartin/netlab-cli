@@ -36,6 +36,11 @@ def _config_lines(device: Device) -> list[str]:
             if interface.switchport_mode.value == "access" and interface.access_vlan != 1:
                 lines.append(f" switchport access vlan {interface.access_vlan}")
             if interface.switchport_mode.value == "trunk":
+                # 'negotiate' is the default: real IOS omits it from the config.
+                if interface.trunk_encapsulation.value != "negotiate":
+                    lines.append(
+                        f" switchport trunk encapsulation {interface.trunk_encapsulation.value}"
+                    )
                 lines.append(f" switchport trunk native vlan {interface.native_vlan}")
                 from netlab.devices.interface import ALL_VLANS, format_vlan_list
 

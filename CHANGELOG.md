@@ -7,6 +7,27 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ## [Unreleased]
 
 ### Added
+- Console rendering & command-buffer traversal milestone:
+  - Inline terminal-stream rendering: prompts are written inline at column 0
+    and stay anchored there — repeated commands can no longer accumulate
+    horizontal offset (root cause: full `tty.setraw` disabled `OPOST`/`ONLCR`,
+    so `\n` stopped returning the carriage; the console now runs raw *input*
+    with cooked *output*).
+  - `netlab start`/`netlab console` use a verbatim console writer; `typer.echo`
+    no longer double-spaces prompts.
+  - Prompt-aware, wrap-aware line editor: whole-line redraws anchored at the
+    prompt, prompt-width continuation indent for long input (readline style),
+    stale-row cleanup on edit/recall, resize-safe width handling.
+  - Session command buffer with `↑`/`↓` traversal (never executes), prefix
+    (similar-command) recall, draft restore past the newest entry, editing
+    without mutating history, bounded in-memory size (100, matching the
+    analytics history), session-scoped isolation, nothing persisted to disk.
+  - `Ctrl-C` aborts a non-empty line IOS-style (`^C`) without executing it;
+    `Ctrl-C`/`Ctrl-D` on an empty line end the session like EOF.
+  - Tests: 37 editor tests against a terminal emulator (layout, wrap, resize,
+    traversal, prefix recall, key semantics) and 6 real-pty end-to-end tests
+    (CRLF/OPOST regression, column-0 anchoring after output, recall + execute,
+    traversal-without-execution, Ctrl-C/Ctrl-D) — 323 total.
 - Deterministic grading engine (`netlab.grading`, milestone 6):
   - `grade(scenario, state)` → frozen `Assessment` (results in scenario order,
     per-category rollup, percentage, summary) — no LLM, no rendered text, no

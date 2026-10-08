@@ -1,0 +1,217 @@
+# NetLab scenario: ccna-trunk-002 — Inter-VLAN Routing with Router-on-a-Stick
+#
+# Topology:
+#
+#                 R1
+#                  |
+#               Gi0/0/0 (no subinterfaces pre-created)
+#                  |
+#            trunk (802.1Q)
+#                  |
+#                 SW1
+#                /    \
+#         Fa0/1 /      \ Fa0/2
+#              /        \
+#          PC-A         PC-B
+#        VLAN 10       VLAN 20
+#
+# A troubleshooting-flavoured variant of the first lab: the VLANs and the
+# trunk are pre-configured (with explicit 802.1Q trunk encapsulation), but the
+# native VLAN of the trunk was left at the default and the allowed list was
+# never pruned. The student must find and fix nothing on L2, then complete the
+# router-on-a-stick subinterfaces and host addressing. Grading is
+# deterministic; points sum to 100.
+
+id: ccna-trunk-002
+title: Inter-VLAN Routing with Router-on-a-Stick
+version: 1
+
+difficulty: intermediate
+
+metadata:
+  estimated_minutes: 25
+  skills:
+    - vlan
+    - trunking
+    - native-vlan
+    - router-on-a-stick
+    - ipv4-addressing
+    - default-gateway
+    - troubleshooting
+
+topology:
+  devices:
+    - name: R1
+      type: router
+      interfaces:
+        - name: GigabitEthernet0/0/0
+    - name: SW1
+      type: switch
+      interfaces:
+        - name: GigabitEthernet0/1
+          description: Uplink-to-R1
+        - name: GigabitEthernet0/2
+          description: PC-A
+        - name: GigabitEthernet0/3
+          description: PC-B
+    - name: PC-A
+      type: pc
+      interfaces:
+        - name: Ethernet0
+    - name: PC-B
+      type: pc
+      interfaces:
+        - name: Ethernet0
+
+  links:
+    - source: R1:Gi0/0/0
+      destination: SW1:Gi0/1
+    - source: SW1:Gi0/2
+      destination: PC-A:Ethernet0
+    - source: SW1:Gi0/3
+      destination: PC-B:Ethernet0
+
+initial_state:
+  vlans:
+    - device: SW1
+      vlan_id: 10
+      name: ADMIN
+    - device: SW1
+      vlan_id: 20
+      name: SALES
+  interfaces:
+    - device: SW1
+      interface: GigabitEthernet0/1
+      switchport:
+        mode: trunk
+    - device: SW1
+      interface: GigabitEthernet0/2
+      switchport:
+        mode: access
+        access_vlan: 10
+    - device: SW1
+      interface: GigabitEthernet0/3
+      switchport:
+        mode: access
+        access_vlan: 20
+
+# Deliberately NOT pre-configured (they are the graded work):
+# - the trunk's encapsulation, native VLAN and pruned allowed list,
+# - R1's router-on-a-stick subinterfaces and addressing,
+# - the PCs' addressing and gateways.
+
+objectives:
+  - Inspect the pre-configured switch and verify the trunk is 802.1Q with VLANs 10 and 20 allowed.
+  - Configure the trunk to allow only VLANs 10 and 20.
+  - Configure R1 subinterfaces Gi0/0/0.10 and Gi0/0/0.20 with 802.1Q encapsulation.
+  - Address R1's subinterfaces (192.168.10.1/24 and 192.168.20.1/24).
+  - Address PC-A and PC-B and point each at its gateway.
+  - Verify with `show interfaces trunk` and `show ip interface brief` before submitting.
+
+requirements:
+  # --- Trunking (25 points) ---
+  - id: sw1-gi0-1-trunk
+    category: Trunking
+    description: SW1 Gi0/1 must operate as an 802.1Q trunk
+    points: 10
+    type: interface_mode
+    device: SW1
+    interface: GigabitEthernet0/1
+    mode: trunk
+
+  - id: sw1-gi0-1-trunk-allows-user-vlans
+    category: Trunking
+    description: SW1 Gi0/1 must allow exactly VLANs 10 and 20
+    points: 10
+    type: trunk_allowed_vlans
+    device: SW1
+    interface: GigabitEthernet0/1
+    vlans: [10, 20]
+
+  - id: sw1-gi0-1-trunk-native-vlan1
+    category: Trunking
+    description: SW1 Gi0/1 must use VLAN 1 as the native VLAN
+    points: 5
+    type: trunk_native_vlan
+    device: SW1
+    interface: GigabitEthernet0/1
+    vlan_id: 1
+
+  # --- Inter-VLAN routing (35 points) ---
+  - id: r1-subif-10-encapsulation
+    category: Inter-VLAN Routing
+    description: R1 Gi0/0/0.10 must encapsulate 802.1Q VLAN 10
+    points: 5
+    type: subinterface_encapsulation
+    device: R1
+    interface: GigabitEthernet0/0/0.10
+    vlan_id: 10
+
+  - id: r1-subif-20-encapsulation
+    category: Inter-VLAN Routing
+    description: R1 Gi0/0/0.20 must encapsulate 802.1Q VLAN 20
+    points: 5
+    type: subinterface_encapsulation
+    device: R1
+    interface: GigabitEthernet0/0/0.20
+    vlan_id: 20
+
+  - id: r1-subif-10-ip
+    category: Inter-VLAN Routing
+    description: R1 Gi0/0/0.10 must be 192.168.10.1/24
+    points: 15
+    type: ip_address
+    device: R1
+    interface: GigabitEthernet0/0/0.10
+    address: 192.168.10.1
+    prefix: 24
+
+  - id: r1-subif-20-ip
+    category: Inter-VLAN Routing
+    description: R1 Gi0/0/0.20 must be 192.168.20.1/24
+    points: 10
+    type: ip_address
+    device: R1
+    interface: GigabitEthernet0/0/0.20
+    address: 192.168.20.1
+    prefix: 24
+
+  # --- Host addressing (40 points) ---
+  - id: pc-a-ip
+    category: Host Addressing
+    description: PC-A must use 192.168.10.10/24
+    points: 15
+    type: host_ip
+    device: PC-A
+    interface: Ethernet0
+    address: 192.168.10.10
+    prefix: 24
+
+  - id: pc-a-gateway
+    category: Host Addressing
+    description: PC-A must use 192.168.10.1 as its default gateway
+    points: 5
+    type: host_gateway
+    device: PC-A
+    gateway: 192.168.10.1
+
+  - id: pc-b-ip
+    category: Host Addressing
+    description: PC-B must use 192.168.20.10/24
+    points: 15
+    type: host_ip
+    device: PC-B
+    interface: Ethernet0
+    address: 192.168.20.10
+    prefix: 24
+
+  - id: pc-b-gateway
+    category: Host Addressing
+    description: PC-B must use 192.168.20.1 as its default gateway
+    points: 5
+    type: host_gateway
+    device: PC-B
+    gateway: 192.168.20.1
+
+grading:
+  total: 100

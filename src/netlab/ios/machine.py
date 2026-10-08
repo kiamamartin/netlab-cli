@@ -10,11 +10,11 @@ network state only through the domain models.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import termios
-import tty
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum, StrEnum
@@ -83,75 +83,98 @@ class _EditorState(StrEnum):
 
 
 class _TerminalEditor:
-    """Minimal screen-based line editor backed by a file object.
+    """Prompt-aware, wrap-aware line editor backed by a file object.
 
-    This is intentionally small: it implements cursor movement, buffer
-    traversal, backspace, delete, and a few control-key shortcuts. It is
-    enough to make ``netlab console`` feel like a real interactive terminal
-    rather than a line-buffered pipe reader.
+    Rendering model (inline terminal stream): the session writes the prompt at
+    column 0 and the editor owns everything after it on the current line. The
+    editor re-renders the *whole line* anchored at the prompt — never relative
+    to previous commands — and output mode stays cooked, so repeated commands
+    can never accumulate horizontal offset.
+
+    Input is raw (per-key reads, no echo); the editor echoes keys itself.
+    Lines longer than the terminal width wrap with a continuation indent equal
+    to the prompt width (readline-style); the indent is local to the command
+    being edited and never leaks into the transcript.
+
+    History traversal (session-scoped, in-memory only):
+
+    - ``Up`` moves to the previous entry, ``Down`` to the next. With a
+      non-empty input buffer, traversal is prefix-filtered (similar-command
+      recall); an empty buffer traverses the full chronological history.
+    - Moving past the newest (matching) entry restores the buffer as it was
+      before traversal began (empty unless a prefix was in use).
+    - Traversal never executes a command; editing a recalled line never
+      mutates the stored entry; duplicate submissions are retained (IOS-like).
     """
 
-    def __init__(self, stdin: Any, history: list[str], stdout: Any = None) -> None:
+    def __init__(
+        self, stdin: Any, history: Sequence[str], stdout: Any = None, prompt: str = ""
+    ) -> None:
         self.stdin = stdin
         self.stdout = stdout or sys.stdout
         self.history = history  # written to by the session, read by the editor
+        self.prompt = prompt
         self.state = _EditorState.EDIT
         self.text = ""
         self.cursor = 0
-        self.history_index = 0  # 0 = latest; -1 = not browsing history
+        self.eof_requested = False  # Ctrl-C / Ctrl-D on an empty line
+        # Traversal state; None means "sitting on the fresh input line".
+        self.history_index: int | None = None
+        self.search_prefix: str | None = None
+        self.draft = ""
+        # Visual cursor position within the rendered line (row 0 = prompt row).
+        self._vis_row = 0
+        self._vis_col = len(prompt)
+        self._render_rows = 1
 
     # -- public -------------------------------------------------------------
 
-    def process(self, ch: str, chars: list[str]) -> None:
+    def process(self, ch: str) -> None:
         """Feed one decoded key into the editor."""
         if self.state is _EditorState.COMPLETE:
-            # After a command is submitted the editor resets; further keys
-            # are still read but ignored (the loop will exit on SessionExit
-            # for the final line anyway).
             return
 
-        if ch in ("\x0d", "\x0a", "\x03", "\x04"):  # CR / LF / Ctrl-C / Ctrl-D
-            if ch in ("\x03", "\x04") and not self.text:
-                # Ctrl-C or Ctrl-D on an empty line acts like EOF.
-                chars.append("\x04")
-                self.state = _EditorState.COMPLETE
-                return
+        if ch in ("\x0d", "\x0a"):  # Enter submits the current buffer
             self.stdout.write("\n")
             self.stdout.flush()
-            chars.append("\n")
             self.state = _EditorState.COMPLETE
             return
 
-        if ch in ("\x01", "\x05"):  # Ctrl-A / Ctrl-E -> start / end
-            new_cursor = 0 if ch == "\x01" else len(self.text)
-            if new_cursor != self.cursor:
-                self.stdout.write(f"\x1b[{new_cursor + 1}G")
-                self.stdout.flush()
-                self.cursor = new_cursor
+        if ch in ("\x03", "\x04"):  # Ctrl-C / Ctrl-D
+            if not self.text:
+                # On an empty line both act like EOF and end the session.
+                self.eof_requested = True
+                self.state = _EditorState.COMPLETE
+                return
+            if ch == "\x03":
+                self._abort_line()  # abandon the buffer; it never executes
+            else:
+                self._delete_under_cursor()  # Ctrl-D deletes under the cursor
+            return
+
+        if ch in ("\x01", "\x05"):  # Ctrl-A / Ctrl-E -> start / end of line
+            self.cursor = 0 if ch == "\x01" else len(self.text)
+            self._place_cursor()
             return
 
         if ch == "\x0b":  # Ctrl-K -> kill to end of line
             self.text = self.text[: self.cursor]
-            self.stdout.write("\x1b[K")
-            self.stdout.flush()
+            self._redraw()
             return
 
         if ch == "\x15":  # Ctrl-U -> kill whole line
             self.text = ""
             self.cursor = 0
-            self.stdout.write("\r\x1b[K")
-            self.stdout.flush()
+            self._redraw()
             return
 
         if ch == "\x17":  # Ctrl-W -> delete previous word
             self.text = self._delete_word(self.text, self.cursor)
-            self.stdout.write("\r\x1b[K")
-            self.stdout.write(self.text)
-            self.stdout.flush()
+            self._redraw()
             return
 
         if len(ch) == 1 and ord(ch) < 32:
-            # Ignored control keys (Ctrl-S, Ctrl-Q, etc.)
+            # Ignored control keys (Ctrl-L, Ctrl-S, Ctrl-Q, ...).
             return
 
         if len(ch) == 1:
@@ -167,18 +190,60 @@ class _TerminalEditor:
 
     # -- internal -----------------------------------------------------------
 
-    def _backspace(self) -> None:
-        if self.cursor > 0:
-            self.text = self.text[: self.cursor - 1] + self.text[self.cursor:]
-            self.cursor -= 1
-            self.stdout.write("\b \b")
-            self.stdout.flush()
-
     def _insert(self, ch: str) -> None:
-        self.text = self.text[: self.cursor] + ch + self.text[self.cursor:]
+        at_end = self.cursor == len(self.text)
+        self.text = self.text[: self.cursor] + ch + self.text[self.cursor :]
         self.cursor += 1
+        if not at_end:
+            self._redraw()  # a mid-line insert shifts the tail: re-render
+            return
+        # Fast path: echo the key and keep the cursor on our wrap grid.
         self.stdout.write(ch)
         self.stdout.flush()
+        self._settle_after_write()
+
+    def _settle_after_write(self) -> None:
+        """Pre-empt terminal auto-wrap after an echoed key.
+
+        When the key filled the row's last cell the terminal enters
+        pending-wrap; writing the continuation indent now keeps the cursor on
+        our own wrap grid instead of letting it drop to column 0.
+        """
+        logical = len(self.prompt) + self.cursor
+        _row, col = self._cell(logical)
+        if col == len(self.prompt) and logical > len(self.prompt):
+            self.stdout.write("\n" + " " * len(self.prompt))
+            self.stdout.flush()
+        self._vis_row, self._vis_col = self._cell(logical)
+
+    def _backspace(self) -> None:
+        if self.cursor > 0:
+            self.text = self.text[: self.cursor - 1] + self.text[self.cursor :]
+            self.cursor -= 1
+            self._redraw()
+
+    def _delete_under_cursor(self) -> None:
+        if self.cursor < len(self.text):
+            self.text = self.text[: self.cursor] + self.text[self.cursor + 1 :]
+            self._redraw()
+
+    def _abort_line(self) -> None:
+        """Ctrl-C on a non-empty line: abandon the buffer, show a fresh prompt.
+
+        The pending command is never executed (IOS ``^C`` behaviour) and any
+        traversal state is dropped with it.
+        """
+        self._redraw()  # clear any stale wrapped rows first
+        self.stdout.write("^C\n")
+        self.text = ""
+        self.cursor = 0
+        self.history_index = None
+        self.search_prefix = None
+        self.draft = ""
+        self.stdout.write(self.prompt)
+        self.stdout.flush()
+        self._vis_row, self._vis_col = 0, len(self.prompt)
+        self._render_rows = 1
 
     def _delete_word(self, text: str, cursor: int) -> str:
         # Scan backwards from cursor to find the start of the previous word.
@@ -189,8 +254,100 @@ class _TerminalEditor:
             i -= 1
         return text[:i] + text[cursor:]
 
+    # -- rendering ---------------------------------------------------------------
+
+    def _width(self) -> int:
+        """Current terminal width (queried per render so resizes are honoured)."""
+        return max(shutil.get_terminal_size().columns, 1)
+
+    def _cap(self) -> int:
+        """Text capacity of one wrapped row (continuations are prompt-indented)."""
+        return max(self._width() - len(self.prompt), 1)
+
+    def _cell(self, logical: int) -> tuple[int, int]:
+        """Map a logical column (prompt + text offset) to a (row, col) cell.
+
+        Row 0 holds the prompt plus the first ``width - len(prompt)`` text
+        characters; every continuation row is indented by the prompt width.
+        """
+        width = self._width()
+        prompt_len = len(self.prompt)
+        if logical < width:
+            return (0, logical)
+        offset = logical - width
+        return (
+            1 + offset // max(width - prompt_len, 1),
+            prompt_len + offset % max(width - prompt_len, 1),
+        )
+
+    def _compose(self) -> str:
+        """The rendered line: prompt + text with continuation indents.
+
+        Wrap points get an explicit newline plus prompt-width indent, and a
+        row-filling render is followed by the indent proactively so the
+        terminal never auto-wraps to column 0 behind our back.
+        """
+        prompt_len = len(self.prompt)
+        cap = self._cap()
+        chunks = [self.text[i : i + cap] for i in range(0, len(self.text), cap)] or [""]
+        parts = [self.prompt, chunks[0]]
+        for chunk in chunks[1:]:
+            parts.append("\n" + " " * prompt_len + chunk)
+        end = prompt_len + len(self.text)
+        if end >= self._width() and (end - self._width()) % cap == 0:
+            parts.append("\n" + " " * prompt_len)
+        return "".join(parts)
+
+    def _redraw(self) -> None:
+        """Re-render the whole input line, anchored at the prompt.
+
+        Walks the cursor back to the first row of the line, erases the line
+        and every stale wrapped row below it, rewrites prompt + buffer, then
+        positions the cursor. This keeps editing and history recall from
+        corrupting the prompt or the transcript.
+        """
+        if self._vis_row > 0:
+            # Walk the cursor back up to the first row of this line, then
+            # erase it and every stale wrapped row below it.
+            self.stdout.write(f"\x1b[{self._vis_row}A")
+        self.stdout.write("\r\x1b[J")
+        self.stdout.write(self._compose())
+        # _compose leaves the terminal cursor exactly at the cell of the
+        # line's end, so tracking syncs there before the delta move.
+        row, col = self._cell(len(self.prompt) + len(self.text))
+        self._render_rows = row + 1
+        self._vis_row, self._vis_col = row, col
+        self._place_cursor()
+        self.stdout.flush()
+
+    def _sync_after_prompt(self) -> None:
+        """Re-anchor cursor tracking after the session rendered a new prompt.
+
+        The prompt can change length between lines (mode transitions), so the
+        editor re-reads it at the start of every line.
+        """
+        self._vis_row = 0
+        self._vis_col = len(self.prompt)
+        self._render_rows = 1
+
+    def _place_cursor(self) -> None:
+        """Move the terminal cursor to the cell for ``self.cursor``."""
+        target_row, target_col = self._cell(len(self.prompt) + self.cursor)
+        d_row = target_row - self._vis_row
+        d_col = target_col - self._vis_col
+        if d_row < 0:
+            self.stdout.write(f"\x1b[{-d_row}A")
+        elif d_row > 0:
+            self.stdout.write(f"\x1b[{d_row}B")
+        if d_col < 0:
+            self.stdout.write(f"\x1b[{-d_col}D")
+        elif d_col > 0:
+            self.stdout.write(f"\x1b[{d_col}C")
+        self._vis_row, self._vis_col = target_row, target_col
+        self.stdout.flush()
+
     def _handle_escape(self, ch: str) -> None:
-        """Handle ESC-prefixed sequences: arrows, End, and other edits."""
+        """Handle ESC-prefixed sequences: arrows, Home, End, and other edits."""
         if ch == "\x1b":
             # Lone ESC: compose prefix for the next key (written to stdout,
             # never to the input object).
@@ -201,80 +358,109 @@ class _TerminalEditor:
         # ESC [ <letter> -> arrow keys
         if ch.startswith("\x1b["):
             key = ch[2] if len(ch) > 2 else ""
-            if key == "A":  # Up -> previous history entry
+            if key == "A":  # Up -> previous (prefix-matching) history entry
                 self._browse_history(-1)
-            elif key == "B":  # Down -> next history entry
+            elif key == "B":  # Down -> next history entry / back to the draft
                 self._browse_history(1)
             elif key == "C":  # Right -> move cursor right
                 if self.cursor < len(self.text):
                     self.cursor += 1
-                    self.stdout.write("\x1b[C")
-                    self.stdout.flush()
+                    self._place_cursor()
             elif key == "D":  # Left -> move cursor left
                 if self.cursor > 0:
                     self.cursor -= 1
-                    self.stdout.write("\x1b[D")
-                    self.stdout.flush()
-            else:
-                # Unknown escape sequence: drop the prefix
-                return
+                    self._place_cursor()
             return
 
-        # ESC O <letter> -> other keys (often used by terminators)
+        # ESC O <letter> -> Home / End on terminals that send SS3
         if ch.startswith("\x1bO"):
             key = ch[2] if len(ch) > 2 else ""
             if key == "H":  # Home
-                if self.cursor > 0:
-                    self.stdout.write(f"\x1b[{self.cursor}D")
-                    self.stdout.flush()
-                    self.cursor = 0
+                self.cursor = 0
+                self._place_cursor()
             elif key == "F":  # End
-                if self.cursor < len(self.text):
-                    self.stdout.write(f"\x1b[{len(self.text) - self.cursor}C")
-                    self.stdout.flush()
-                    self.cursor = len(self.text)
-            else:
-                return
-            return
+                self.cursor = len(self.text)
+                self._place_cursor()
+
+    # -- key input ------------------------------------------------------------
+
+    def read_key(self) -> str:
+        """Read one key, decoding ANSI escape sequences (arrows, Home, End)."""
+        ch = self.stdin.read(1)
+        if not ch:
+            return "\x04"  # EOF -> treat as Ctrl-D
+        if ch == "\x1b":  # ESC -> start of an escape sequence
+            ch2 = self.stdin.read(1)
+            if ch2 == "[":
+                ch3 = self.stdin.read(1)
+                if ch3 in ("A", "B", "C", "D"):
+                    return f"\x1b[{ch3}"
+                # Anything else after ESC [ (function keys etc.): pass through
+                return f"\x1b[{ch3}" if ch3 else "\x1b["
+            if ch2 == "O":
+                ch3 = self.stdin.read(1)
+                return f"\x1bO{ch3}" if ch3 else "\x1bO"
+            return ch + ch2
+        return ch
 
     # -- history ------------------------------------------------------------
 
     def _browse_history(self, delta: int) -> None:
-        """Move through the in-memory command history.
+        """Move through the session's command buffer.
 
         ``delta`` < 0 means "up/older", ``delta`` > 0 means "down/newer".
+        With a non-empty input buffer, only entries that start with it are
+        recalled (similar-command recall); an empty buffer traverses the full
+        chronological history. Moving past the newest (matching) entry
+        restores the buffer as it was before traversal began.
         """
-        if delta < 0:
-            # Going up: load the previous command (if any)
-            if self.history_index <= 0:
-                return  # already at the oldest history entry
-            self.history_index -= 1
-            candidate = (
-                self.history[self.history_index]
-                if 0 <= self.history_index < len(self.history)
-                else ""
-            )
-            if candidate:
-                self.text = candidate
-                self.cursor = len(self.text)
-                self.stdout.write("\r\x1b[K")
-                self.stdout.write(self.text)
-                self.stdout.flush()
-        else:
-            # Going down: return to a fresh empty command line
-            if self.history_index > 0:
-                self.history_index = 0
-                self.text = ""
-                self.cursor = 0
-                self.stdout.write("\r\x1b[K")
-                self.stdout.flush()
-            # else: not browsing history yet; ignore
+        if delta < 0:  # Up
+            if self.history_index is None:
+                self.history_index = len(self.history)
+                self.search_prefix = self.text
+                self.draft = self.text
+            for index in range(self.history_index - 1, -1, -1):
+                entry = self.history[index]
+                if entry.startswith(self.search_prefix or ""):
+                    self.history_index = index
+                    self._recall(entry)
+                    return
+            return  # no older match: stay on the current entry
+        # Down
+        if self.history_index is None:
+            return  # not browsing; nothing newer exists
+        for index in range(self.history_index + 1, len(self.history)):
+            entry = self.history[index]
+            if entry.startswith(self.search_prefix or ""):
+                self.history_index = index
+                self._recall(entry)
+                return
+        # Past the newest (matching) entry: restore the pre-traversal buffer.
+        self.history_index = None
+        self.search_prefix = None
+        self._recall(self.draft)
+
+    def _recall(self, text: str) -> None:
+        """Load ``text`` into the buffer.
+
+        The entry is copied — editing the line afterwards never modifies the
+        stored history, and recalling never executes anything.
+        """
+        self.text = text
+        self.cursor = len(text)
+        self._redraw()
 
     def reset(self) -> None:
         """Clear the current line and prepare for a fresh command."""
         self.text = ""
         self.cursor = 0
-        self.history_index = 0
+        self.history_index = None
+        self.search_prefix = None
+        self.draft = ""
+        self.eof_requested = False
+        self._vis_row = 0
+        self._vis_col = len(self.prompt)
+        self._render_rows = 1
         self.state = _EditorState.EDIT
 
     def get_text(self) -> str:
@@ -320,7 +506,9 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
         self._stdin = sys.stdin
         self._input_mode = _InputMode.PIPE
         self._terminal_editor: _TerminalEditor | None = None
-        self._buffer: list[str] = []  # in-memory history of submitted lines
+        # In-memory traversal buffer for ↑/↓ (session-scoped, never persisted).
+        # Bounded like the analytics history so long sessions cannot grow it.
+        self._buffer: deque[str] = deque(maxlen=HISTORY_BUFFER_SIZE)
 
     # --- Introspection -------------------------------------------------------
 
@@ -344,16 +532,39 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
         return prompt_for(self.mode, self._device.hostname)
 
     def _enable_raw_mode(self) -> None:
-        """Put the terminal in raw mode so arrow keys and backspace are fine."""
+        """Raw *input*, cooked output: the terminal layout contract.
+
+        Input flags mirror ``tty.setraw`` (per-key reads, no echo — the editor
+        echoes keys itself). Output post-processing (``OPOST``/``ONLCR``) is
+        deliberately preserved so every ``\\n`` the session writes still
+        returns the carriage. Disabling it was the root cause of progressive
+        horizontal drift: in full raw mode each prompt/output line started
+        where the previous line ended instead of at column 0.
+        """
         if sys.platform == "win32":
             # Windows: minimal support is not worth the complexity in stage 6.
             # The pipe-based code path is used instead.
             return
-        self._old_termios = termios.tcgetattr(sys.stdin.fileno())
+        fd = sys.stdin.fileno()
+        self._old_termios = termios.tcgetattr(fd)
+        attrs = termios.tcgetattr(fd)
         try:
-            tty.setraw(sys.stdin.fileno())
+            iflag, lflag, cc = 0, 3, 6
+            attrs[iflag] &= ~(
+                termios.BRKINT
+                | termios.ICRNL
+                | termios.INPCK
+                | termios.ISTRIP
+                | termios.IXON
+            )
+            attrs[lflag] &= ~(
+                termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG
+            )
+            attrs[cc][termios.VMIN] = 1
+            attrs[cc][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSAFLUSH, attrs)
         except Exception:
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSAFLUSH, self._old_termios)
+            termios.tcsetattr(fd, termios.TCSAFLUSH, self._old_termios)
             raise
 
     def _disable_raw_mode(self) -> None:
@@ -369,44 +580,31 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
 
     # --- Line editor ---------------------------------------------------------
 
-    def _read_key(self) -> str:
-        """Read a single key, decoding ANSI escape sequences for arrows."""
-        ch = self._stdin.read(1)
-        if not ch:
-            return "\x04"  # Ctrl-D -> EOF
-        if ch == "\x1b":  # ESC -> start of an escape sequence
-            ch2 = self._stdin.read(1)
-            if ch2 == "[":
-                ch3 = self._stdin.read(1)
-                if ch3 in ("A", "B", "C", "D"):
-                    return {
-                        "A": "\x1b[A",
-                        "B": "\x1b[B",
-                        "C": "\x1b[C",
-                        "D": "\x1b[D",
-                    }[ch3]
-                # Ignore anything else after ESC [ (e.g. function keys)
-                return ch2 + ch3
-            return ch + ch2
-        return ch
+    def _read_line(self, prompt: str) -> tuple[str, bool]:
+        """Read one line with the line editor; return ``(text, eof_requested)``.
 
-    def _read_line(self) -> str:
-        """Read one line with a minimal line editor and return the text.
-
-        ``\r`` is translated to ``\n`` so any terminal that returns CR for
-        Enter works identically to the pipe-based code path below.
+        ``prompt`` is the already-rendered prompt for this line; the editor
+        needs it to anchor redraws (history recall, line editing) at the same
+        column the session wrote it to. ``\r`` is accepted for Enter so any
+        terminal that returns CR works identically to the pipe code path.
+        ``eof_requested`` is ``True`` when the line ended by Ctrl-C/Ctrl-D on
+        an empty buffer — it must be captured *before* the editor resets.
         """
         if self._terminal_editor is None:
-            self._terminal_editor = _TerminalEditor(self._stdin, self._buffer, sys.stdout)
+            self._terminal_editor = _TerminalEditor(
+                self._stdin, self._buffer, sys.stdout, prompt
+            )
         editor = self._terminal_editor
-        chars: list[str] = []
+        editor.prompt = prompt
+        editor._sync_after_prompt()
         while True:
-            ch = self._read_key()
-            editor.process(ch, chars)
+            ch = editor.read_key()
+            editor.process(ch)
             if editor.state is _EditorState.COMPLETE:
                 result = editor.get_text()
+                eof_requested = editor.eof_requested
                 editor.reset()
-                return result
+                return result, eof_requested
 
     # --- Accessors shared with the command mixins ------------------------------
 
@@ -642,6 +840,7 @@ class CliSession(DeviceConfigMixin, SwitchConfigMixin, HostConfigMixin):
                     "switchport mode": self.cmd_switchport_mode,
                     "switchport access vlan": self.cmd_switchport_access_vlan,
                     "switchport trunk allowed vlan": self.cmd_switchport_trunk_allowed,
+                    "switchport trunk encapsulation": self.cmd_switchport_trunk_encapsulation,
                     "switchport trunk native vlan": self.cmd_switchport_trunk_native,
                 }
             )
@@ -687,13 +886,18 @@ def run_console(
     """Run an interactive device session over ``lines``/``write``.
 
     ``lines`` supplies input (normally ``sys.stdin``) and is used when no
-    interactive TTY is attached. When the session is attached to a TTY and the
-    terminal supports ANSI escapes, raw mode plus a small line editor is
-    enabled, giving the student cursor control with arrow keys and previous-
-    command buffer traversal. ``scenario`` enables ``assess``/``submit``.
+    interactive TTY is attached. ``write`` is a *verbatim* terminal writer:
+    strings are appended exactly as given (newlines included — the loop adds
+    them where it wants them). On a TTY the prompt is written inline and the
+    line editor takes over the rest of that row; raw mode applies to input
+    only, so output keeps ``OPOST``/``ONLCR`` and every prompt stays anchored
+    at column 0. The editor supports cursor movement, prompt-aware wrapping
+    with continuation indent, and ↑/↓ command-buffer traversal over a
+    session-scoped, in-memory history. ``scenario`` enables
+    ``assess``/``submit``.
 
-    Ends on ``exit`` in user EXEC (raising :class:`SessionExit`) or end of
-    input.
+    Ends on ``exit`` in user EXEC (raising :class:`SessionExit`), on Ctrl-C or
+    Ctrl-D on an empty line (TTY), or on end of input (pipe).
     """
     session = CliSession(state, hostname, scenario=scenario)
 
@@ -713,21 +917,35 @@ def run_console(
 
     if input_mode is _InputMode.TTY:
         # Enter raw mode so arrow keys, backspace, and control keys behave
-        # interactively.
+        # interactively. Output stays cooked (see _enable_raw_mode), which is
+        # what keeps every prompt anchored at column 0.
         session._enable_raw_mode()
-        session._terminal_editor = _TerminalEditor(sys.stdin, session._buffer, sys.stdout)
+        session._terminal_editor = _TerminalEditor(
+            sys.stdin, session._buffer, sys.stdout, session.prompt()
+        )
 
     try:
         while True:
-            write(session.prompt())
+            prompt = session.prompt()
             if input_mode is _InputMode.TTY:
-                line = session._read_line()
+                # TTY: the prompt is rendered inline (with the conventional
+                # single-space separator) and the editor owns the rest of
+                # that row.
+                tty_prompt = f"{prompt} "
+                write(tty_prompt)
+                line, eof_requested = session._read_line(tty_prompt)
+                if eof_requested:
+                    # Ctrl-C / Ctrl-D on an empty line ends the session,
+                    # exactly like pipe EOF.
+                    write("\n")
+                    return
             else:
+                # Pipe: prompts are transcript lines, each on its own row.
+                write(f"{prompt}\n")
                 line, had_input = _read_pipe_line(lines)
                 if not had_input:
                     # EOF: end the session exactly like the committed contract
                     # (input exhaustion terminates, without raising).
-                    write("\n")
                     return
             output = session.execute(line)
             if output:

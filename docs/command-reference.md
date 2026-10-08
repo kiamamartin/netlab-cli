@@ -3,6 +3,80 @@
 Status: the IOS CLI engine (stage 3) is **implemented** for mode machinery and structural commands;
 configuration and `show` commands follow in stages 4–5. Do not rely on any command marked *planned*.
 
+## Console session experience
+
+### Command rendering
+
+The console renders an **inline terminal stream** (Mode B of the milestone
+spec): the prompt is written inline at column 0 and the line editor owns the
+rest of that row. The terminal output path stays cooked (``OPOST``/``ONLCR``
+preserved) while *input* is raw — this is the structural guarantee that
+prompts never accumulate horizontal offset: every ``\n`` the session writes
+returns the carriage, so repeated commands stay anchored at the normal left
+margin. There is no nested-container/indent rendering anywhere in the
+transcript path.
+
+Details:
+
+- Each executed command's output is written flush-left; output blocks never
+  shift the origin of subsequent prompts.
+- Input longer than the terminal width wraps with a continuation indent equal
+  to the prompt width (readline-style). The indent is local to the command
+  being edited — after submission the transcript shows the command and its
+  output normally, and the next prompt returns to column 0.
+- Redraws (editing, history recall) repaint the *whole line* anchored at the
+  prompt and clear stale wrapped rows, so recall never corrupts the prompt or
+  the transcript.
+- Layout is stable at any terminal width (verified at 80/100/120/160 columns
+  via a real-pty sweep); resizes mid-session are honoured on the next render.
+
+### Keyboard reference
+
+| Key | Effect |
+|---|---|
+| printable keys | Insert into the command buffer |
+| `Enter` | Execute the current buffer |
+| `↑` / `↓` | Command-buffer traversal (see below) |
+| `←` / `→` | Move the cursor within the line |
+| `Home` / `End` (`Ctrl-A` / `Ctrl-E`) | Beginning / end of line |
+| `Backspace` / `Delete` (`Ctrl-D`) | Delete before / under the cursor |
+| `Ctrl-K` | Kill to end of line |
+| `Ctrl-U` | Kill the whole line |
+| `Ctrl-W` | Delete the previous word |
+| `Ctrl-C` | Abort the current line without executing it; on an empty line, end the session |
+| `Ctrl-D` | Delete under the cursor; on an empty line, end the session |
+
+`↑`/`↓` always perform command-buffer traversal while the command input is
+active — the console owns the whole input line at all times, so there is no
+separate scroll-focus mode to conflict with (`Ctrl-C`/`Ctrl-L` and the editing
+shortcuts above are unaffected; `Ctrl-L` is currently ignored).
+
+### Command history (buffer traversal)
+
+- History is chronological for the *current console session only*; it is
+  in-memory and never persisted beyond the process (session persistence is the
+  next roadmap milestone, not implemented).
+- Only successfully submitted commands are stored; empty input and command
+  errors are not.
+- The buffer is bounded (`HISTORY_BUFFER_SIZE = 100`, matching the analytics
+  history); oldest entries are dropped — memory cannot grow unboundedly.
+- `↑` recalls the previous entry, `↓` the next; traversal never executes a
+  command, and editing a recalled line never mutates the stored entry. `Enter`
+  executes whatever the buffer holds — re-executing a recalled command works.
+- Moving `↓` past the newest entry restores the buffer as it was before
+  traversal began (empty on a fresh prompt).
+- **Prefix recall**: with a non-empty input buffer, traversal is filtered to
+  entries that start with it. Example: type `show`, then `↑` cycles through
+  `show ...` commands only, while `configure terminal` etc. are skipped.
+  With an empty buffer, traversal covers the whole history.
+- Duplicate consecutive commands are **retained** (IOS-like behaviour), so
+  repeated `show vlan brief` submissions all appear in traversal.
+
+Known limitations: traversal recall matches whole-line *prefixes* only (no
+substring/fuzzy search yet); `show interfaces` and `show version` are not yet
+implemented in the simulator (they fail validation and are not stored in
+history).
+
 ## IOS-like semantics
 
 - **Unique-prefix matching** per word: `conf t`, `conf term`, and `configure terminal` are all

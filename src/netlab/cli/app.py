@@ -14,6 +14,13 @@ from netlab.scenarios import (
     validate_requirements,
 )
 
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"netlab {__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     help="NetLab CLI — Adaptive Cisco Networking Laboratory and Assessment Environment.",
     no_args_is_help=True,
@@ -21,7 +28,17 @@ app = typer.Typer(
 
 
 @app.callback()
-def _root() -> None:
+def _root(
+    version: Annotated[
+        bool | None,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Print the NetLab CLI version and exit.",
+        ),
+    ] = None,
+) -> None:
     """NetLab CLI — Adaptive Cisco Networking Laboratory and Assessment Environment."""
 
 
@@ -29,6 +46,43 @@ def _root() -> None:
 def version() -> None:
     """Print the NetLab CLI version."""
     typer.echo(f"netlab {__version__}")
+
+
+def _resolve_scenario_id(
+    argument: str | None, option: str | None, *, command: str
+) -> str:
+    """Accept the scenario id as a positional argument *or* a long option.
+
+    ``netlab start ccna-vlan-001`` and ``netlab start --scenario-id
+    ccna-vlan-001`` are both accepted; giving both forms is an error so the
+    intent is never ambiguous.
+    """
+    if argument is not None and option is not None:
+        raise typer.BadParameter(
+            f"give the scenario id either positionally or via the option, not both "
+            f"(got {argument!r} and {option!r})",
+        )
+    scenario_id = argument if argument is not None else option
+    if scenario_id is None:
+        name = "--scenario" if command == "console" else "--scenario-id"
+        raise typer.BadParameter(
+            f"missing scenario id: "
+            f"netlab {command} <scenario-id> or netlab {command} {name} <scenario-id>"
+        )
+    return scenario_id
+
+
+def _difficulty_filter(value: str | None) -> str | None:
+    """Validate the ``--difficulty`` filter value (kept lowercase for YAML ids)."""
+    if value is None:
+        return None
+    lowered = value.lower()
+    if lowered not in ("beginner", "intermediate", "advanced"):
+        raise typer.BadParameter(
+            f"invalid difficulty {value!r} "
+            "(expected: beginner, intermediate or advanced)"
+        )
+    return lowered
 
 
 def _device_summary(scenario: object) -> str:
@@ -51,13 +105,28 @@ def _device_summary(scenario: object) -> str:
 
 @app.command("list")
 def list_scenarios(
+    difficulty: Annotated[
+        str | None,
+        typer.Option(
+            case_sensitive=False,
+            help="Only show scenarios with this difficulty "
+            "(beginner, intermediate or advanced).",
+        ),
+    ] = None,
     scenarios_dir: Annotated[
         Path,
         typer.Option(help="Directory containing scenario YAML files."),
     ] = Path("scenarios"),
 ) -> None:
     """List available scenarios (invalid files are reported and skipped)."""
+    difficulty_filter = _difficulty_filter(difficulty)
     loaded, errors = discover_scenarios(scenarios_dir)
+    if difficulty_filter is not None:
+        loaded = [
+            entry
+            for entry in loaded
+            if entry[1].difficulty.value == difficulty_filter
+        ]
     if not loaded and not errors:
         typer.echo(f"No scenarios found in {scenarios_dir}")
         return
@@ -79,6 +148,19 @@ def list_scenarios(
         typer.secho(f"{_path}: {message}", fg=typer.colors.RED, err=True)
     if errors:
         raise typer.Exit(code=1)
+
+
+def _console_write(text: str) -> None:
+    """Verbatim terminal writer for interactive console sessions.
+
+    ``run_console``'s contract is a writer that appends exactly the text it is
+    given (newlines included): the prompt is intentionally written inline so
+    the line editor can anchor its redraws to it. ``typer.echo`` must not be
+    used here — it appends its own newline, which pushes the prompt onto its
+    own line and double-spaces command output.
+    """
+    sys.stdout.write(text)
+    sys.stdout.flush()
 
 
 def _pick_device(scenario: object, device: str | None) -> str:
@@ -119,14 +201,19 @@ def _pick_device(scenario: object, device: str | None) -> str:
 @app.command("devices")
 def list_devices(
     scenario_id: Annotated[
-        str, typer.Option(help="Scenario id to inspect.")
+        str, typer.Option(help="Scenario id to inspect (run ``netlab list`` to see ids).")
     ],
     scenarios_dir: Annotated[
         Path,
         typer.Option(help="Directory containing scenario YAML files."),
     ] = Path("scenarios"),
 ) -> None:
-    """List the devices in a scenario (hostnames, types, interfaces)."""
+    """List the devices in a scenario (hostnames, types, interfaces).
+
+    Example::
+
+        netlab devices --scenario-id ccna-vlan-001
+    """
     _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
     typer.echo(f"Scenario: {scenario.id} — {scenario.title}")
     typer.echo("")
@@ -143,14 +230,24 @@ def list_devices(
 
 @app.command("start")
 def start_scenario(
-    scenario_id: Annotated[
-        str, typer.Option(help="Scenario id to start (run ``netlab list`` to see ids).")
-    ],
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id to start, e.g. ccna-vlan-001 (run ``netlab list`` "
+            "to see ids). Alternatively use --scenario-id.",
+        ),
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option("--scenario-id", help="Scenario id to start (alternative to "
+                     "the positional argument)."),
+    ] = None,
     device: Annotated[
         str | None,
         typer.Option(
             help="Device hostname to connect to (e.g. SW1). Omitted when the "
-            "scenario has one device — use ``netlab devices <id>`` to see choices."
+            "scenario has one device — use ``netlab devices`` to see choices."
         ),
     ] = None,
     scenarios_dir: Annotated[
@@ -174,6 +271,9 @@ def start_scenario(
     from netlab.core.errors import NetLabError
     from netlab.ios import SessionExit, run_console
 
+    scenario_id = _resolve_scenario_id(
+        scenario_argument, scenario_id_option, command="start"
+    )
     _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
     # Semantic validation so students get a useful message before the session starts.
     problems = validate_requirements(scenario)
@@ -194,7 +294,7 @@ def start_scenario(
         typer.echo("")
     try:
         state = build_initial_state(scenario)
-        run_console(state, hostname, sys.stdin, typer.echo, scenario=scenario)
+        run_console(state, hostname, sys.stdin, _console_write, scenario=scenario)
     except SessionExit:
         pass
     except NetLabError as exc:
@@ -204,17 +304,25 @@ def start_scenario(
 
 @app.command()
 def console(
-    scenario_id: Annotated[
-        str,
-        typer.Option(
-            "--scenario", help="Scenario id to load (run ``netlab list`` to see ids)."
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id to load, e.g. ccna-vlan-001. Alternatively use --scenario.",
         ),
-    ],
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option(
+            "--scenario", help="Scenario id to load (alternative to the positional "
+            "argument)."
+        ),
+    ] = None,
     device: Annotated[
         str | None,
         typer.Option(
             help="Device hostname to connect to (e.g. SW1). If omitted, the "
-            "default device is chosen automatically — use ``netlab devices <id>`` "
+            "default device is chosen automatically — use ``netlab devices`` "
             "to see choices."
         ),
     ] = None,
@@ -237,14 +345,266 @@ def console(
     from netlab.core.errors import NetLabError
     from netlab.ios import SessionExit, run_console
 
+    scenario_id = _resolve_scenario_id(
+        scenario_argument, scenario_id_option, command="console"
+    )
     _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
     hostname = _pick_device(scenario, device)
     try:
         state = build_initial_state(scenario)
-        run_console(state, hostname, sys.stdin, typer.echo, scenario=scenario)
+        run_console(state, hostname, sys.stdin, _console_write, scenario=scenario)
     except SessionExit:
         pass
     except NetLabError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def save(
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id whose current session should be saved. "
+            "Alternatively use --scenario-id.",
+        ),
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option("--scenario-id", help="Scenario id (alternative to the "
+                     "positional argument)."),
+    ] = None,
+    device: Annotated[
+        str | None,
+        typer.Option(
+            help="Device hostname to reconnect to on resume (e.g. SW1). "
+            "Omitted when the scenario has one device."
+        ),
+    ] = None,
+    scenarios_dir: Annotated[
+        Path,
+        typer.Option(help="Directory containing scenario YAML files."),
+    ] = Path("scenarios"),
+) -> None:
+    """Save the current session state for a scenario (JSON, decision B12).
+
+    ``netlab save`` snapshots the authoritative network state so a later
+    ``netlab resume`` continues where you left off. The scenario's YAML must
+    still be discoverable (use ``--scenarios-dir`` if it lives elsewhere).
+
+    Examples::
+
+        netlab save ccna-vlan-001
+        netlab save ccna-vlan-001 --device SW1
+    """
+    from netlab.core.errors import NetLabError
+    from netlab.persistence import PersistenceError, save_session, sessions_dir
+
+    scenario_id = _resolve_scenario_id(
+        scenario_argument, scenario_id_option, command="save"
+    )
+    try:
+        _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
+        state = build_initial_state(scenario)
+        hostname = device if device is not None else _pick_device(scenario, None)
+        path = save_session(scenario_id, hostname, state)
+        typer.echo(f"Session for {scenario_id} saved to {path}")
+        typer.echo(f"Resume with: netlab resume {scenario_id}")
+        typer.echo(f"Sessions directory: {sessions_dir()}")
+    except NetLabError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    except PersistenceError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def resume(
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id to resume. Alternatively use --scenario-id.",
+        ),
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option("--scenario-id", help="Scenario id (alternative to the "
+                     "positional argument)."),
+    ] = None,
+    device: Annotated[
+        str | None,
+        typer.Option(
+            help="Device hostname to connect to (e.g. SW1); overrides the "
+            "hostname recorded at save time."
+        ),
+    ] = None,
+    scenarios_dir: Annotated[
+        Path,
+        typer.Option(help="Directory containing scenario YAML files."),
+    ] = Path("scenarios"),
+) -> None:
+    """Resume a saved session (restores the saved network state).
+
+    The restored state is authoritative: every configuration you saved is
+    back, and ``assess``/``submit`` inside the session grades it against the
+    scenario's requirements.
+
+    Examples::
+
+        netlab resume ccna-vlan-001
+        netlab resume ccna-vlan-001 --device R1
+    """
+    from netlab.core.errors import NetLabError
+    from netlab.ios import SessionExit, run_console
+    from netlab.persistence import PersistenceError, load_session
+
+    scenario_id = _resolve_scenario_id(
+        scenario_argument, scenario_id_option, command="resume"
+    )
+    try:
+        _snapshot, state = load_session(scenario_id)
+        _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
+        hostname = device if device is not None else _snapshot.hostname
+        names = [spec.name for spec in scenario.topology.devices]
+        if hostname not in names:
+            raise PersistenceError(
+                f"saved device {hostname!r} is not part of scenario "
+                f"{scenario_id!r} (devices: {', '.join(names)})"
+            )
+        typer.echo(
+            f"Resuming scenario {scenario.id} — {scenario.title} "
+            f"(saved session)."
+        )
+        typer.echo(f"Device: {hostname}  |  Difficulty: {scenario.difficulty.value}")
+        typer.echo("")
+        run_console(state, hostname, sys.stdin, _console_write, scenario=scenario)
+    except SessionExit:
+        pass
+    except NetLabError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def reset(
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id whose saved session should be reset. "
+            "Alternatively use --scenario-id, or pass --all.",
+        ),
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option("--scenario-id", help="Scenario id (alternative to the "
+                     "positional argument)."),
+    ] = None,
+    hard: Annotated[
+        bool,
+        typer.Option(
+            "--hard",
+            help="Delete the saved session entirely (default is a soft reset "
+            "back to the scenario's initial state).",
+        ),
+    ] = False,
+    reset_all: Annotated[
+        bool,
+        typer.Option("--all", help="Reset every saved session."),
+    ] = False,
+    scenarios_dir: Annotated[
+        Path,
+        typer.Option(help="Directory containing scenario YAML files."),
+    ] = Path("scenarios"),
+) -> None:
+    """Reset saved sessions: soft (back to initial state) or hard (deleted).
+
+    Examples::
+
+        netlab reset ccna-vlan-001           # soft reset
+        netlab reset ccna-vlan-001 --hard    # delete the saved session
+        netlab reset --all --hard            # delete every saved session
+    """
+    from netlab.core.errors import NetLabError
+    from netlab.persistence import (
+        PersistenceError,
+        reset_all_sessions,
+        reset_session,
+    )
+
+    try:
+        if reset_all:
+            try:
+                count = reset_all_sessions(hard=hard)
+            except NetLabError as exc:
+                typer.secho(str(exc), fg=typer.colors.RED, err=True)
+                raise typer.Exit(code=1) from exc
+            typer.echo(f"Reset {count} saved session(s) ({'hard' if hard else 'soft'}).")
+            return
+        scenario_id = _resolve_scenario_id(
+            scenario_argument, scenario_id_option, command="reset"
+        )
+        message = reset_session(
+            scenario_id, scenarios_dir, hard=hard
+        )
+        typer.echo(message)
+    except NetLabError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    except PersistenceError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
+def assess(
+    scenario_argument: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[SCENARIO-ID]",
+            help="Scenario id whose saved session should be graded. "
+            "Alternatively use --scenario-id.",
+        ),
+    ] = None,
+    scenario_id_option: Annotated[
+        str | None,
+        typer.Option("--scenario-id", help="Scenario id (alternative to the "
+                     "positional argument)."),
+    ] = None,
+    scenarios_dir: Annotated[
+        Path,
+        typer.Option(help="Directory containing scenario YAML files."),
+    ] = Path("scenarios"),
+) -> None:
+    """Grade a saved session outside the device shell.
+
+    Runs the deterministic grading engine against the saved network state and
+    prints the assessment report — the same report ``submit`` renders inside
+    a session.
+
+    Example::
+
+        netlab assess ccna-vlan-001
+    """
+    from netlab.core.errors import NetLabError
+    from netlab.grading import grade, render_assessment
+    from netlab.persistence import PersistenceError, load_session
+
+    scenario_id = _resolve_scenario_id(
+        scenario_argument, scenario_id_option, command="assess"
+    )
+    try:
+        _snapshot, state = load_session(scenario_id)
+        _path, scenario = resolve_scenario(scenarios_dir, scenario_id)
+        assessment = grade(scenario, state)
+        typer.echo(render_assessment(assessment))
+    except NetLabError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    except PersistenceError as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 

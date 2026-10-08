@@ -56,8 +56,8 @@ Domain objects never depend on the terminal UI; the CLI depends on the domain, n
 | `netlab.core` | Shared primitives: configuration modes, `Command`, error taxonomy | ✅ implemented |
 | `netlab.devices` | `Device`, `Switch`, `Router`, `Host`, `Interface`, `VLAN`, configuration snapshots | ✅ implemented |
 | `netlab.network` | `Endpoint`, `Link`, `Topology` (validated), `NetworkState` aggregate | ✅ implemented |
-| `netlab.cli` | Typer application, `netlab` console script | ✅ minimal (`version`); sessions/scenarios pending |
-| `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors, show renderers | ✅ stage 3 implemented (modes, parser, structural commands); show renderers pending |
+| `netlab.cli` | Typer application, `netlab` console script, verbatim console writer (inline prompts) | ✅ `version`/`list`/`devices`/`start`/`console`; save/resume pending |
+| `netlab.ios` | Mode state machine, parser, command registry, IOS-style errors; console loop with raw-input/cooked-output line editor (prompt-anchored redraws, ↑/↓ command-buffer traversal with prefix recall) and show renderers | ✅ stage 3 implemented + milestone: console rendering & buffer traversal |
 | `netlab.scenarios` | Scenario schema, YAML loader, fail-early validation, initial-state builder | ✅ implemented |
 | `netlab.grading` | Deterministic engine: requirement→validator registry, `Assessment` model, scoring, report renderer; golden/negative gated | ✅ implemented |
 | `netlab.verification` | Show renderers (`show vlan brief`, `show interfaces trunk`, `show ip interface brief`, running/startup config) generated from state | ✅ core renderers implemented; expanding with simulation |

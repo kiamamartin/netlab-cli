@@ -8,7 +8,7 @@ from ipaddress import IPv4Address
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from netlab.core.enums import SwitchportMode
+from netlab.core.enums import SwitchportMode, TrunkEncapsulation
 from netlab.core.errors import (
     InvalidInterfaceError,
     InvalidVlanIdError,
@@ -152,6 +152,7 @@ class Interface(BaseModel):
     access_vlan: int = Field(default=1, ge=MIN_VLAN, le=MAX_VLAN)
     native_vlan: int = Field(default=1, ge=MIN_VLAN, le=MAX_VLAN)
     allowed_vlans: set[int] = Field(default_factory=lambda: set(ALL_VLANS))
+    trunk_encapsulation: TrunkEncapsulation = TrunkEncapsulation.NEGOTIATE
 
     # Layer-3 state
     ip_address: IPv4Address | None = None
@@ -184,6 +185,12 @@ class Interface(BaseModel):
             )
         if (self.ip_address is None) != (self.prefix_length is None):
             raise ValueError("ip_address and prefix_length must be configured together")
+        if self.trunk_encapsulation is not TrunkEncapsulation.NEGOTIATE and (
+            self.switchport_mode is not SwitchportMode.TRUNK or self.is_subinterface
+        ):
+            raise ValueError(
+                f"trunk encapsulation is only valid on trunk ports, not {self.name}"
+            )
         return self
 
     def set_ip(self, address: str | IPv4Address, prefix: int) -> None:

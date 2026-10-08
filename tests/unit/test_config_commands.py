@@ -3,7 +3,7 @@
 from ipaddress import IPv4Address
 from pathlib import Path
 
-from netlab.core.enums import SwitchportMode
+from netlab.core.enums import SwitchportMode, TrunkEncapsulation
 from netlab.devices.host import Host
 from netlab.devices.switch import Switch
 from netlab.ios.machine import CliSession
@@ -70,6 +70,49 @@ class TestSwitchportCommands:
         assert interface.switchport_mode is SwitchportMode.TRUNK
         assert interface.allowed_vlans == {10, 20}
         assert interface.native_vlan == 1
+
+    def test_trunk_encapsulation_dot1q(self) -> None:
+        session = make_switch_session()
+        session.execute("interface gi0/1")
+        session.execute("switchport mode trunk")
+        session.execute("switchport trunk encapsulation dot1q")
+        interface = session.device.get_interface("gi0/1")
+        assert interface.switchport_mode is SwitchportMode.TRUNK
+        assert interface.trunk_encapsulation is TrunkEncapsulation.DOT1Q
+
+    def test_trunk_encapsulation_prefix_and_case_insensitive(self) -> None:
+        session = make_switch_session()
+        session.execute("interface gi0/1")
+        session.execute("switchport mode trunk")
+        output = session.execute("SWITCHPORT TRUNK ENCAPSULATION DOT1Q")
+        assert output == ""
+        assert (
+            session.device.get_interface("gi0/1").trunk_encapsulation
+            is TrunkEncapsulation.DOT1Q
+        )
+
+    def test_trunk_encapsulation_requires_trunk_mode(self) -> None:
+        session = make_switch_session()
+        session.execute("interface gi0/1")
+        output = session.execute("switchport trunk encapsulation dot1q")
+        assert output.startswith("%")
+        assert (
+            session.device.get_interface("gi0/1").trunk_encapsulation
+            is TrunkEncapsulation.NEGOTIATE
+        )
+
+    def test_trunk_encapsulation_unknown_kind_rejected(self) -> None:
+        session = make_switch_session()
+        session.execute("interface gi0/1")
+        session.execute("switchport mode trunk")
+        output = session.execute("switchport trunk encapsulation atm")
+        assert output.startswith("% Invalid input")
+
+    def test_trunk_encapsulation_missing_on_router(self) -> None:
+        session = make_router_session()
+        session.execute("interface g0/0/0")
+        output = session.execute("switchport trunk encapsulation dot1q")
+        assert output.startswith("% Invalid input")
 
     def test_trunk_allowed_vlan_verbs(self) -> None:
         session = make_switch_session()
@@ -183,6 +226,7 @@ GOLDEN_LINES = {
         "exit",
         "interface gi0/1",
         "switchport mode trunk",
+        "switchport trunk encapsulation dot1q",
         "exit",
         "interface gi0/2",
         "switchport mode access",

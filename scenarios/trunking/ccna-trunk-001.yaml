@@ -1,0 +1,207 @@
+# NetLab scenario: ccna-trunk-001 — Trunk Configuration and Pruning
+#
+# Topology (two switches joined by a trunk):
+#
+#         PC-A          PC-B
+#           |             |
+#        Gi0/2         Gi0/2
+#           \             /
+#            SW1 ======= SW2
+#              Gi0/1   Gi0/1
+#               (802.1Q trunk, VLANs 10 & 20)
+#
+# The student creates the VLANs on both switches, assigns access ports,
+# configures both trunk ends with explicit 802.1Q encapsulation, prunes the
+# allowed VLAN list to the two user VLANs, sets the native VLAN, and submits.
+# Grading is deterministic; points sum to 100.
+
+id: ccna-trunk-001
+title: Trunk Configuration and Pruning
+version: 1
+
+difficulty: beginner
+
+metadata:
+  estimated_minutes: 15
+  skills:
+    - vlan
+    - access-ports
+    - trunking
+    - native-vlan
+    - default-gateway
+
+topology:
+  devices:
+    - name: SW1
+      type: switch
+      interfaces:
+        - name: GigabitEthernet0/1
+          description: Trunk-to-SW2
+        - name: GigabitEthernet0/2
+          description: PC-A
+        - name: GigabitEthernet0/3
+          description: unused
+    - name: SW2
+      type: switch
+      interfaces:
+        - name: GigabitEthernet0/1
+          description: Trunk-to-SW1
+        - name: GigabitEthernet0/2
+          description: PC-B
+        - name: GigabitEthernet0/3
+          description: unused
+    - name: PC-A
+      type: pc
+      interfaces:
+        - name: Ethernet0
+    - name: PC-B
+      type: pc
+      interfaces:
+        - name: Ethernet0
+
+  links:
+    - source: SW1:Gi0/1
+      destination: SW2:Gi0/1
+    - source: SW1:Gi0/2
+      destination: PC-A:Ethernet0
+    - source: SW2:Gi0/2
+      destination: PC-B:Ethernet0
+
+objectives:
+  - Create VLAN 10 (ADMIN) and VLAN 20 (SALES) on both switches.
+  - Assign SW1 Gi0/2 to VLAN 10 and SW2 Gi0/2 to VLAN 20 as access ports.
+  - Configure the SW1↔SW2 link as an 802.1Q trunk on both ends.
+  - Prune each trunk to allow only VLANs 10 and 20.
+  - Set VLAN 99 as the native VLAN of each trunk.
+  - Verify with `show interfaces trunk` before submitting.
+
+requirements:
+  # --- VLAN configuration (25 points) ---
+  - id: sw1-vlan10-exists
+    category: VLAN Configuration
+    description: VLAN 10 must exist on SW1
+    points: 5
+    type: vlan_exists
+    device: SW1
+    vlan_id: 10
+
+  - id: sw1-vlan20-exists
+    category: VLAN Configuration
+    description: VLAN 20 must exist on SW1
+    points: 5
+    type: vlan_exists
+    device: SW1
+    vlan_id: 20
+
+  - id: sw1-vlan10-name
+    category: VLAN Configuration
+    description: VLAN 10 must be named ADMIN on SW1
+    points: 5
+    type: vlan_name
+    device: SW1
+    vlan_id: 10
+    name: ADMIN
+
+  - id: sw2-vlan10-exists
+    category: VLAN Configuration
+    description: VLAN 10 must exist on SW2
+    points: 5
+    type: vlan_exists
+    device: SW2
+    vlan_id: 10
+
+  - id: sw2-vlan20-exists
+    category: VLAN Configuration
+    description: VLAN 20 must exist on SW2
+    points: 5
+    type: vlan_exists
+    device: SW2
+    vlan_id: 20
+
+  # --- Access ports (15 points) ---
+  - id: sw1-gi0-2-access-vlan10
+    category: Access Ports
+    description: SW1 Gi0/2 must be an access port in VLAN 10
+    points: 8
+    type: access_vlan
+    device: SW1
+    interface: GigabitEthernet0/2
+    vlan_id: 10
+
+  - id: sw2-gi0-2-access-vlan20
+    category: Access Ports
+    description: SW2 Gi0/2 must be an access port in VLAN 20
+    points: 7
+    type: access_vlan
+    device: SW2
+    interface: GigabitEthernet0/2
+    vlan_id: 20
+
+  # --- Trunking (35 points) ---
+  - id: sw1-gi0-1-trunk
+    category: Trunking
+    description: SW1 Gi0/1 must operate as an 802.1Q trunk
+    points: 10
+    type: interface_mode
+    device: SW1
+    interface: GigabitEthernet0/1
+    mode: trunk
+
+  - id: sw2-gi0-1-trunk
+    category: Trunking
+    description: SW2 Gi0/1 must operate as an 802.1Q trunk
+    points: 10
+    type: interface_mode
+    device: SW2
+    interface: GigabitEthernet0/1
+    mode: trunk
+
+  - id: sw1-gi0-1-trunk-allows-user-vlans
+    category: Trunking
+    description: SW1 Gi0/1 must allow exactly VLANs 10 and 20
+    points: 8
+    type: trunk_allowed_vlans
+    device: SW1
+    interface: GigabitEthernet0/1
+    vlans: [10, 20]
+
+  - id: sw2-gi0-1-trunk-allows-user-vlans
+    category: Trunking
+    description: SW2 Gi0/1 must allow exactly VLANs 10 and 20
+    points: 7
+    type: trunk_allowed_vlans
+    device: SW2
+    interface: GigabitEthernet0/1
+    vlans: [10, 20]
+
+  # --- Host addressing (25 points) ---
+  - id: pc-a-ip
+    category: Host Addressing
+    description: PC-A must use 192.168.10.10/24
+    points: 10
+    type: host_ip
+    device: PC-A
+    interface: Ethernet0
+    address: 192.168.10.10
+    prefix: 24
+
+  - id: pc-a-gateway
+    category: Host Addressing
+    description: PC-A must use 192.168.10.1 as its default gateway
+    points: 5
+    type: host_gateway
+    device: PC-A
+    gateway: 192.168.10.1
+
+  - id: pc-b-ip
+    category: Host Addressing
+    description: PC-B must use 192.168.20.10/24
+    points: 10
+    type: host_ip
+    device: PC-B
+    interface: Ethernet0
+    address: 192.168.20.10
+    prefix: 24
+
+grading:
+  total: 100

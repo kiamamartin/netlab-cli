@@ -232,10 +232,14 @@ def test_validate_requirements_allows_student_created_subinterfaces() -> None:
     assert validate_requirements(scenario) == []
 
 
-def test_discover_scenarios_finds_first_milestone() -> None:
-    loaded, errors = discover_scenarios(PROJECT_ROOT / "scenarios")
-    assert errors == []
-    assert [scenario.id for _path, scenario in loaded] == ["ccna-vlan-001"]
+def test_discover_scenarios_finds_all_pinned_scenarios() -> None:
+        loaded, errors = discover_scenarios(PROJECT_ROOT / "scenarios")
+        assert errors == []
+        assert {scenario.id for _path, scenario in loaded} == {
+            "ccna-vlan-001",
+            "ccna-trunk-001",
+            "ccna-trunk-002",
+        }
 
 
 def test_discover_scenarios_skips_broken_files(tmp_path: Path) -> None:

@@ -19,8 +19,9 @@ from __future__ import annotations
 from ipaddress import IPv4Address, ip_network
 from typing import TYPE_CHECKING
 
-from netlab.core.enums import DeviceType, SwitchportMode
+from netlab.core.enums import DeviceType, SwitchportMode, TrunkEncapsulation
 from netlab.core.errors import (
+    InvalidInputError,
     InvalidOperationError,
     InvalidVlanIdError,
 )
@@ -103,6 +104,17 @@ def validate_encapsulation_argument(tokens: list[str]) -> int:
         raise
     except ValueError as exc:
         raise ValueError(f"invalid VLAN id {tokens[1]!r}") from exc
+
+
+def validate_trunk_encapsulation_argument(value: str) -> TrunkEncapsulation:
+    """Validate ``switchport trunk encapsulation <kind>`` (case-insensitive)."""
+    try:
+        return TrunkEncapsulation(value.lower())
+    except ValueError as exc:
+        raise ValueError(
+            f"unknown encapsulation {value!r} "
+            f"(expected one of: {', '.join(e.value for e in TrunkEncapsulation)})"
+        ) from exc
 
 
 def validate_gateway_argument(value: str) -> IPv4Address:
@@ -191,6 +203,16 @@ class SwitchConfigMixin:
             interface.allowed_vlans = current - set(vlans)
         elif verb == "except":
             interface.allowed_vlans = set(range(1, 4095)) - set(vlans)
+        return ""
+
+    def cmd_switchport_trunk_encapsulation(self, encapsulation: object) -> str:
+        interface = self._interface()
+        if interface.switchport_mode is not SwitchportMode.TRUNK:
+            raise InvalidInputError(
+                "encapsulation is only valid on trunk ports: "
+                "configure 'switchport mode trunk' first"
+            )
+        interface.trunk_encapsulation = encapsulation  # type: ignore[assignment]
         return ""
 
     def cmd_switchport_trunk_native(self, vlan_id: object) -> str:
@@ -293,6 +315,13 @@ def switch_specs() -> list:
             argument_min=1,
             argument_max=4,
             multi_validator=validate_allowed_vlan_argument,
+        ),
+        CommandSpec(
+            name="switchport trunk encapsulation",
+            mode=ConfigMode.INTERFACE_CONFIG,
+            pattern=("switchport", "trunk", "e"),
+            argument="dot1q|isl|negotiate",
+            argument_validator=validate_trunk_encapsulation_argument,
         ),
         CommandSpec(
             name="switchport trunk native vlan",

@@ -34,6 +34,19 @@ class SwitchportMode(StrEnum):
     TRUNK = "trunk"
 
 
+class TrunkEncapsulation(StrEnum):
+    """Trunking encapsulation negotiated on a switchport trunk (doc §26).
+
+    ``NEGOTIATE`` mirrors the IOS default when the ``switchport trunk
+    encapsulation`` command has never been entered; ``DOT1Q`` records the
+    command form actually taught in the labs.
+    """
+
+    NEGOTIATE = "negotiate"
+    DOT1Q = "dot1q"
+    ISL = "isl"
+
+
 class LinkStatus(StrEnum):
     """Physical link status."""
 

@@ -8,7 +8,7 @@ backends can reuse them.
 
 from __future__ import annotations
 
-from netlab.core.enums import SwitchportMode
+from netlab.core.enums import SwitchportMode, TrunkEncapsulation
 from netlab.devices.base import Device
 from netlab.devices.interface import format_vlan_list
 from netlab.devices.switch import Switch
@@ -73,8 +73,14 @@ def show_interfaces_trunk(state: NetworkState, device: Device) -> str:
     for name in trunks:
         interface = device.get_interface(name)
         status = "trunking" if state.interface_is_up(device.hostname, name) else "down"
+        if interface.trunk_encapsulation is TrunkEncapsulation.DOT1Q:
+            admin_encapsulation = "802.1q"
+        elif interface.trunk_encapsulation is TrunkEncapsulation.ISL:
+            admin_encapsulation = "isl"
+        else:
+            admin_encapsulation = "negotiate"
         first.append(
-            f"{interface.short_name:<11} {'on':<16} {'802.1q':<14} {status:<13} "
+            f"{interface.short_name:<11} {'on':<16} {admin_encapsulation:<14} {status:<13} "
             f"{interface.native_vlan}"
         )
     second_header = (
