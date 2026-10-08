@@ -118,3 +118,31 @@ class TestScenarioIdForms:
         result = runner.invoke(app, ["console", "--scenarios-dir", str(SCENARIOS_DIR)])
         assert result.exit_code != 0
         assert "scenario id" in result.output.lower()
+
+
+class TestTopologyDiagram:
+    def test_list_shows_diagram_under_each_scenario(self) -> None:
+        result = runner.invoke(app, ["list", "--scenarios-dir", str(SCENARIOS_DIR)])
+        assert result.exit_code == 0
+        assert "┌" in result.output
+        assert "Links:" in result.output
+        # Diagram lines are indented under the scenario entry.
+        assert "      ┌" in result.output
+
+    def test_list_no_diagram_flag_hides_it(self) -> None:
+        result = runner.invoke(
+            app, ["list", "--no-diagram", "--scenarios-dir", str(SCENARIOS_DIR)]
+        )
+        assert result.exit_code == 0
+        assert "┌" not in result.output
+        assert "ccna-vlan-001" in result.output
+
+    def test_devices_shows_topology_diagram(self) -> None:
+        result = runner.invoke(
+            app,
+            ["devices", "--scenario-id", "ccna-vlan-001", "--scenarios-dir", str(SCENARIOS_DIR)],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Topology:" in result.output
+        assert "┌" in result.output
+        assert "  ┌" in result.output

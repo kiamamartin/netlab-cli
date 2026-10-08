@@ -96,15 +96,49 @@ history).
 | Command | Description | Status |
 |---|---|---|
 | `netlab version` | Print the NetLab CLI version | ✅ implemented |
-| `netlab list` / `netlab scenarios` | List available scenarios (invalid files reported and skipped) | ✅ `netlab list` implemented |
+| `netlab list` / `netlab scenarios` | List available scenarios, each with an ASCII topology diagram underneath (`--no-diagram` hides it; invalid files reported and skipped) | ✅ `netlab list` implemented |
 | `netlab console --scenario <id> --device <host>` | Interactive IOS-like session on one device of a scenario | ✅ implemented |
 | `netlab start <scenario>` | Load a scenario and start a managed lab session | ⏳ planned |
-| `netlab devices` | List session devices; connect interactively | ⏳ planned |
+| `netlab devices --scenario-id <id>` | List a scenario's devices and interfaces, followed by its topology diagram | ✅ implemented |
 | `netlab status` | Session status | ⏳ planned |
 | `netlab assess` / `netlab submit` | Run deterministic grading, show assessment | ⏳ planned |
 | `netlab save` / `netlab resume` | Persist / restore a session | ⏳ planned |
 | `netlab reset [--soft|--hard]` | Restore initial state / delete session | ⏳ planned |
 | `netlab progress` / `netlab history` | Learning analytics (SQLite phase) | ⏳ deferred |
+
+### Topology diagrams
+
+`netlab list` renders an ASCII topology diagram under every scenario
+(`--no-diagram` for the compact list), and `netlab devices` prints the same
+drawing under `Topology:` after the interface list. The renderer
+(`netlab.diagram.render_diagram`) is deterministic and dependency-free:
+
+- one box per device — hostname and device kind — in declaration order;
+- one cable row per link: a drop from each endpoint's box centre joined by a
+  horizontal run. Junction glyphs are exact: `└ ┘` where a cable turns into
+  its box, `├ ┤` where a box's drop continues to a deeper link (a shared
+  trunk), `┼` where a cable *crosses* another device's drop without
+  connecting, and `─` where a cable passes over a drop that ended above it;
+- a cabling legend mapping every `HOST:Interface` pair below the drawing.
+
+Output carries no trailing whitespace and is stable for a given topology.
+Lab topologies are small; the drawing assumes it fits the terminal (single
+row of boxes, no wrapping).
+
+Example (`netlab list`, scenario `ccna-vlan-001`):
+
+      ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+      │   R1   │  │  SW1   │  │  PC-A  │  │  PC-B  │
+      │ router │  │ switch │  │   pc   │  │   pc   │
+      └────┬───┘  └────┬───┘  └────┬───┘  └────┬───┘
+           └───────────┤           │           │
+                       ├───────────┘           │
+                       └───────────────────────┘
+
+      Links:
+        R1 Gi0/0/0 ↔ SW1 Gi0/1
+        SW1 Gi0/2 ↔ PC-A Ethernet0
+        SW1 Gi0/3 ↔ PC-B Ethernet0
 
 ## IOS-like device commands (milestone 1)
 

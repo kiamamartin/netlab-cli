@@ -7,6 +7,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versio
 ## [Unreleased]
 
 ### Added
+- ASCII topology diagrams (`netlab.diagram`):
+  - `render_diagram(topology)` draws device boxes in declaration order, one
+    cable row per link dropped from each endpoint's box centre, exact
+    junction glyphs (turns `└ ┘`, shared drops `├ ┤`, crossings `┼`), and a
+    cabling legend for every `HOST:Interface` pair. Deterministic,
+    dependency-free, no trailing whitespace.
+  - `netlab list` renders the diagram under every scenario by default
+    (`--no-diagram` for the compact list); `netlab devices` shows it under
+    `Topology:`.
+  - Tests: golden two-device rendering, no-links/unknown-endpoint edge
+    cases, crossing and shared-drop glyph checks, every shipped scenario —
+    378 total.
 - Console rendering & command-buffer traversal milestone:
   - Inline terminal-stream rendering: prompts are written inline at column 0
     and stay anchored there — repeated commands can no longer accumulate

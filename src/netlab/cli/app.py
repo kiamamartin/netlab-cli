@@ -7,6 +7,7 @@ from typing import Annotated
 import typer
 
 from netlab import __version__
+from netlab.diagram import render_diagram
 from netlab.scenarios import (
     build_initial_state,
     discover_scenarios,
@@ -113,6 +114,13 @@ def list_scenarios(
             "(beginner, intermediate or advanced).",
         ),
     ] = None,
+    diagram: Annotated[
+        bool,
+        typer.Option(
+            "--diagram/--no-diagram",
+            help="Render an ASCII topology diagram under each scenario.",
+        ),
+    ] = True,
     scenarios_dir: Annotated[
         Path,
         typer.Option(help="Directory containing scenario YAML files."),
@@ -141,6 +149,11 @@ def list_scenarios(
             typer.echo(f"      estimated: {minutes} min")
         else:
             typer.echo(f"      devices: {_device_summary(scenario)}")
+        if diagram:
+            typer.echo("")
+            for line in render_diagram(scenario.topology).splitlines():
+                typer.echo(f"      {line}" if line else "")
+            typer.echo("")
         # Start hint
         typer.echo(f"      start:  netlab start {scenario.id}")
         typer.echo("")
@@ -226,6 +239,10 @@ def list_devices(
             description = getattr(iface, "description", "") or "(no description)"
             typer.echo(f"      {name}: {description}")
         typer.echo("")
+    typer.echo("Topology:")
+    for line in render_diagram(scenario.topology).splitlines():
+        typer.echo(f"  {line}" if line else "")
+    typer.echo("")
 
 
 @app.command("start")
