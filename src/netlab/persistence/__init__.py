@@ -50,7 +50,7 @@ class SessionSnapshot(BaseModel):
     scenario_id: str = Field(min_length=1)
     hostname: str
     saved_at: datetime
-    state: dict  # NetworkState.model_dump(mode="json")
+    state: dict  # _dump_state(state)
 
     @classmethod
     def capture(
@@ -60,8 +60,27 @@ class SessionSnapshot(BaseModel):
             scenario_id=scenario_id,
             hostname=hostname,
             saved_at=datetime.now(UTC),
-            state=state.model_dump(mode="json"),
+            state=_dump_state(state),
         )
+
+
+def _dump_state(state: NetworkState) -> dict:
+    """Serialize ``state`` losslessly, device by concrete device type.
+
+    ``state.model_dump()`` serializes through the *declared* field type
+    ``Topology.devices: dict[str, Device]``, so pydantic uses the base
+    :class:`Device` schema and silently drops subclass fields — the switch
+    VLAN database (``Switch.vlans``) and host default gateways
+    (``Host.default_gateway``) never reached disk, and a resumed session
+    graded differently from the one that was saved. Each device is therefore
+    dumped from its own class (the same way :meth:`Config.capture` snapshots
+    a single device), then written back over the base-typed entries.
+    """
+    dump = state.model_dump(mode="json")
+    devices = dump["topology"]["devices"]
+    for hostname, device in state.topology.devices.items():
+        devices[hostname] = device.model_dump(mode="json")
+    return dump
 
 
 def sessions_dir() -> Path:
