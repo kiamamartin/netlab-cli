@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, model_validator
 
 from netlab.core.enums import LinkStatus
 from netlab.core.errors import (
@@ -24,7 +24,12 @@ class Topology(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    devices: dict[str, Device]
+    # SerializeAsAny: serialize each device with its *runtime* class. The
+    # field is declared as the base Device (topologies mix routers, switches
+    # and hosts), and pydantic serializes base-typed fields with the base
+    # schema — which silently dropped subclass state such as Switch.vlans and
+    # Host.default_gateway from every state dump. Validation is unaffected.
+    devices: dict[str, SerializeAsAny[Device]]
     links: list[Link] = Field(default_factory=list)
 
     @model_validator(mode="after")

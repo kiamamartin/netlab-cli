@@ -170,3 +170,23 @@ def test_self_loop_rejected() -> None:
                 )
             ],
         )
+
+
+def test_dump_uses_runtime_device_types() -> None:
+    """Dumps must keep subclass state even though ``devices`` is base-typed.
+
+    Regression: serializing through the declared ``Device`` type dropped the
+    switch VLAN database and host default gateways from every state dump
+    (persistence saved a lossy snapshot).
+    """
+    topology = build_topology()
+    sw1 = topology.devices["SW1"]
+    pc_a = topology.devices["PC-A"]
+    assert isinstance(sw1, Switch)
+    assert isinstance(pc_a, PC)
+    sw1.create_vlan(10, "ADMIN")
+    pc_a.default_gateway = "192.168.10.1"
+
+    devices = topology.model_dump(mode="json")["devices"]
+    assert devices["SW1"]["vlans"]["10"]["name"] == "ADMIN"
+    assert devices["PC-A"]["default_gateway"] == "192.168.10.1"

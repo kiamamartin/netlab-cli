@@ -71,6 +71,32 @@ class TestSaveLoadRoundTrip:
         # Restored state grades identically to the in-memory state.
         assert grade(scenario, restored) == grade(scenario, state)
 
+    def test_round_trip_preserves_subclass_state(
+        self, sessions_dir: Path
+    ) -> None:
+        """VLAN database and host default gateway must survive save/load.
+
+        Regression: dumps went through the base ``Device`` schema, so
+        ``Switch.vlans`` and ``Host.default_gateway`` never reached disk and a
+        resumed session graded differently from the one that was saved.
+        """
+        _scenario, state, _session = _configured_state()  # VLAN 10 (ADMIN) + 20
+        host_session = CliSession(state, "PC-A")
+        host_session.execute("enable")
+        host_session.execute("ip default-gateway 192.168.10.1")
+
+        save_session("ccna-vlan-001", "SW1", state)
+        _snapshot, restored = load_session("ccna-vlan-001")
+
+        sw1 = restored.topology.devices["SW1"]
+        pc_a = restored.topology.devices["PC-A"]
+        assert sw1.vlans == state.topology.devices["SW1"].vlans
+        assert sw1.vlans[10].name == "ADMIN"
+        assert pc_a.default_gateway == state.topology.devices["PC-A"].default_gateway
+        assert str(pc_a.default_gateway) == "192.168.10.1"
+        # The whole state — not just these fields — round-trips byte-for-byte.
+        assert restored.model_dump(mode="json") == state.model_dump(mode="json")
+
     def test_restored_state_is_configurable(self, sessions_dir: Path) -> None:
         """The round-tripped state must be a live, mutable NetworkState."""
         _scenario, state, _session = _configured_state()
